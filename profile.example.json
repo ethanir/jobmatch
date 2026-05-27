@@ -1,0 +1,32 @@
+{
+  "name": "Ethan Irimiciuc",
+  "email": "ethanirimiciuc@gmail.com",
+  "phone": "773-663-7100",
+  "location": "Park Ridge, IL",
+  "work_authorization": "U.S. Citizen",
+  "requires_sponsorship": false,
+  "target_titles": ["Software Engineer", "Full-Stack Engineer", "Backend Engineer", "New Grad Software Engineer"],
+  "years_experience": 0,
+  "education": [
+    {"degree": "B.S. Computer Science - Software Engineering", "school": "University of Illinois Chicago", "dates": "2023-2026"},
+    {"degree": "A.S. Computer Science", "school": "Wilbur Wright College", "dates": "2021-2023"}
+  ],
+  "skills": {
+    "languages": ["Python", "JavaScript", "TypeScript", "Swift", "Go", "C", "C++", "F#", "SQL"],
+    "frameworks": ["React", "FastAPI", "SwiftUI", "Node.js", "Selenium"],
+    "tools": ["Git", "GitHub", "Linux", "Vercel", "Railway"],
+    "databases": ["PostgreSQL", "MySQL"]
+  },
+  "projects": [
+    {"name": "MixerAI", "stack": ["TypeScript", "React", "Python", "Node.js"], "summary": "Multi-model AI orchestration Chrome extension, deployed live."},
+    {"name": "Little Sorter", "stack": ["Swift", "SwiftUI", "StoreKit 2", "AVFoundation"], "summary": "Native iOS game shipped to the App Store."},
+    {"name": "Steam Market Bot", "stack": ["Python", "Selenium", "FastAPI", "React"], "summary": "24/7 automated marketplace scanner with live dashboard."},
+    {"name": "BioTrack", "stack": ["React", "Python", "FastAPI", "MySQL"], "summary": "Full-stack classroom education platform, 4-person team."}
+  ],
+  "preferences": {"remote_ok": true, "onsite_ok": true, "locations": ["Chicago, IL"], "min_salary": null},
+  "links": {
+    "github": "https://github.com/ethanir",
+    "linkedin": "https://www.linkedin.com/in/ethanirimiciuc",
+    "portfolio": "https://mixerai.net"
+  }
+}
