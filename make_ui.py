@@ -86,6 +86,17 @@ function Label({children}){return <div style={{fontFamily:FU,fontSize:11,fontWei
 function Chips({items,kind}){const s=kind==="match"?{color:"#176844",background:"#eaf6ef",border:"1px solid #cfe7d8"}:{color:"#8a5d10",background:"#fbf3e2",border:"1px solid #ecdcb8"};return <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{items.map((it,i)=><span key={i} style={{...s,fontFamily:FU,fontSize:12.5,fontWeight:500,padding:"3px 10px",borderRadius:7}}>{it}</span>)}</div>;}
 function Ring({tier,score}){const t=TIERS[tier]||TIERS.possible;const r=26,c=2*Math.PI*r,off=c*(1-score/100);return(<div style={{position:"relative",width:64,height:64,flexShrink:0}}><svg width="64" height="64" style={{transform:"rotate(-90deg)"}}><circle cx="32" cy="32" r={r} fill="none" stroke="#ece8dd" strokeWidth="5"/><circle cx="32" cy="32" r={r} fill="none" stroke={t.dot} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off}/></svg><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><span style={{fontFamily:FD,fontSize:19,fontWeight:600,lineHeight:1,color:"#1a1a17"}}>{score}</span><span style={{fontFamily:FU,fontSize:8.5,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em",color:t.text}}>fit</span></div></div>);}
 
+function IconCopy({text}){
+  const [done,setDone]=useState(false);
+  return <button className="btn" title="Copy" aria-label="Copy"
+    onClick={()=>{if(copyText(text)){setDone(true);setTimeout(()=>setDone(false),1500);}}}
+    style={{position:"absolute",top:10,right:10,cursor:"pointer",width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid "+(done?"#cfe7d8":"#e4e0d6"),background:done?"#eaf6ef":"#fdfcf8",color:done?"#176844":"#8a8578",padding:0}}>
+    {done
+      ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+  </button>;
+}
+
 function CopyBtn({text, label}){
   const [done,setDone]=useState(false);
   return <button className="btn" onClick={()=>{if(copyText(text)){setDone(true);setTimeout(()=>setDone(false),1500);}}} style={{cursor:"pointer",fontFamily:FU,fontSize:12.5,fontWeight:600,padding:"6px 12px",borderRadius:8,border:"1px solid #cfcabc",background:done?"#eaf6ef":"transparent",color:done?"#176844":"#1a1a17",whiteSpace:"nowrap"}}>{done?"Copied ✓":label}</button>;
@@ -124,16 +135,10 @@ function Outreach({job}){
 
     {hasDraft && <>
       <Label>Step 2 — your email, ready to send</Label>
-      {subject && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-        <div style={{flex:1,fontFamily:FU,fontSize:13.5,padding:"10px 14px",border:"1px solid #ece8dd",borderRadius:9,background:"#fffdf8",color:"#2a2823"}}><span style={{color:"#a39d8e",fontWeight:600}}>Subject: </span>{subject}</div>
-        <CopyBtn text={subject} label="Copy"/>
-      </div>}
-      <div style={{border:"1px solid #ece8dd",borderRadius:12,background:"#fbfaf4",padding:"16px 18px",marginBottom:10}}>
+      <div style={{position:"relative",border:"1px solid #ece8dd",borderRadius:12,background:"#fbfaf4",padding:"16px 18px"}}>
+        <IconCopy text={full}/>
+        {subject && <div style={{fontFamily:FU,fontSize:13.5,color:"#2a2823",paddingRight:34,marginBottom:12,paddingBottom:12,borderBottom:"1px solid #ece8dd"}}><span style={{color:"#a39d8e",fontWeight:600}}>Subject: </span>{subject}</div>}
         <pre style={{margin:0,fontFamily:FB,fontSize:14.5,lineHeight:1.55,color:"#33312a",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{body}</pre>
-      </div>
-      <div style={{display:"flex",gap:8}}>
-        <CopyBtn text={body} label="Copy email body"/>
-        <CopyBtn text={full} label="Copy subject + body"/>
       </div>
     </>}
   </div>);
