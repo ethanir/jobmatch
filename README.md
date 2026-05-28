@@ -132,6 +132,9 @@ Configure on the host (Railway) with env vars:
 | `ANTHROPIC_API_KEY` | Required, powers ranking and drafts |
 | `ACCESS_CODE` | The unlock code (gate is off if unset) |
 | `COOKIE_SECRET` | Fixed random string so the unlock survives redeploys |
+| `DATABASE_URL` | Postgres for the per-user backend (file feed is used if unset) |
+| `OWNER_USER_ID` | Optional. A long random id so the owner is one identity across devices |
+| `DB_POOL_MAX` | Optional. Max pooled DB connections (default 10) |
 
 API keys live only in the host's private environment, never in this repo.
 
