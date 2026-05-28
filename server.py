@@ -93,10 +93,8 @@ def _valid_token():
 
 
 def _is_unlocked(request):
-    """True if the gate is off, or the request carries a valid unlock cookie."""
-    if not ACCESS_CODE:
-        return True
-    return request.cookies.get("jr_access") == _valid_token()
+    """Access gate is DISABLED: the site is free and open to everyone."""
+    return True
 
 
 def _require_unlock(request):
