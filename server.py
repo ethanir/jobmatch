@@ -251,6 +251,77 @@ def _load(user_id="me", tier=None):
     return data, source
 
 
+def _raw_pool():
+    """The shared, unshaped job pool (the latest owner refresh output). This is
+    the universe a visitor's per-profile heuristic feed gets scored over."""
+    if not os.path.exists(RANKED_FILE):
+        return []
+    try:
+        with open(RANKED_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _user_profile(user_id):
+    """This user's OWN saved profile from Postgres, or None. No file fallback,
+    so a visitor with no profile is correctly treated as having none (and gets
+    the shared sample feed rather than the owner's profile)."""
+    if not db.has_db():
+        return None
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                return db.get_profile(conn, user_id)
+    except Exception:
+        return None
+    return None
+
+
+def _visitor_feed(user_id, profile, tier):
+    """A feed ranked for THIS visitor: score the shared job pool against their
+    profile with the free heuristic ($0), then overlay any of their own verified
+    rankings (e.g. bring-your-own-AI). The heuristic never awards 'strong' (only
+    a real AI ranking can), so unverified jobs show as estimates in the UI."""
+    import score
+    pool = _raw_pool()
+    if not pool:
+        return _from_file(), "file"
+    ranked = score.rank_free(pool, profile)   # sets _score/_matched, sorts best-first
+    overlay = {}
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    overlay = db.get_rankings_map(conn, user_id)
+        except Exception:
+            overlay = {}
+    out = []
+    for j in ranked:
+        jid = db.job_hash(j)
+        if jid in overlay:
+            f = overlay[jid]
+            fit = {"tier": f.get("tier"), "score": f.get("score"),
+                   "reasons": f.get("reasons") or [],
+                   "matched_skills": f.get("matched_skills") or [],
+                   "missing_skills": f.get("missing_skills") or []}
+        else:
+            fit = score.heuristic_fit(j)
+        out.append(_shape({
+            "id": jid,
+            "company": j.get("company", ""), "title": j.get("title", ""),
+            "location": j.get("location", ""), "url": j.get("url", ""),
+            "source": j.get("source", "") or j.get("ats", ""),
+            "fit": fit,
+            "is_new": j.get("is_new", False),
+        }))
+    order = {"strong": 0, "possible": 1, "skip": 2}
+    out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))
+    if tier and tier != "all":
+        out = [j for j in out if j["tier"] == tier]
+    return out, "heuristic"
+
+
 # ---------------------------------------------------------------- routes
 @app.get("/api/health")
 def health():
@@ -270,7 +341,23 @@ def list_jobs(request: Request, tier: str = "all"):
                 db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
     except Exception:
         pass
-    data, source = _load(user_id, tier)
+    if _is_unlocked(request):
+        # Owner: the AI-ranked feed (their Postgres rankings if any, else the
+        # shared file). Unchanged from before.
+        data, source = _load(user_id, tier)
+    else:
+        # Visitor: if they have built a profile, serve a feed ranked for THEM
+        # (free heuristic over the shared job pool, plus any of their own
+        # verified rankings). If they have no profile yet, serve the shared
+        # sample feed exactly like before, so nothing regresses.
+        prof = _user_profile(user_id)
+        if prof:
+            try:
+                data, source = _visitor_feed(user_id, prof, tier)
+            except Exception:
+                data, source = _load(user_id, tier)
+        else:
+            data, source = _load(user_id, tier)
     return {"source": source, "count": len(data), "jobs": data}
 
 
@@ -457,24 +544,72 @@ async def do_unlock(request: Request):
     return JSONResponse({"ok": False, "error": "Incorrect code."}, status_code=403)
 
 
+@app.get("/api/profile")
+def read_profile(request: Request):
+    """Return the current user's saved profile, or null if they have none yet,
+    so the onboarding UI can prefill. The owner falls back to the shared file so
+    their own profile prefills too; a fresh visitor gets null (a blank form)."""
+    user_id = request.state.user_id
+    prof = None
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    prof = db.get_profile(conn, user_id)
+        except Exception:
+            prof = None
+    if prof is None and (_is_unlocked(request) or not db.has_db()):
+        for path in (os.environ.get("PROFILE_PATH", "my_profile.json"),
+                     "profile.example.json"):
+            if os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        prof = json.load(f)
+                    break
+                except Exception:
+                    pass
+    return {"profile": prof}
+
+
 @app.post("/api/profile")
 async def save_profile(request: Request):
-    """Save a profile JSON (from the bring-your-own-AI flow) to disk. Owner-only
-    so a visitor can't overwrite the shared profile."""
-    _require_unlock(request)
+    """Save a profile JSON. Each visitor saves THEIR OWN per-user profile (it is
+    free and only affects their own feed), so this is intentionally not
+    owner-gated. The shared my_profile.json that the paid pipeline reads is only
+    ever written by the owner (or in local dev with no Postgres), so a visitor
+    can never overwrite it."""
     try:
         data = await request.json()
     except Exception:
         return {"ok": False, "error": "Body was not valid JSON."}
     if not isinstance(data, dict):
         return {"ok": False, "error": "Expected a single JSON object."}
-    path = os.environ.get("PROFILE_PATH", "my_profile.json")
-    try:
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        return {"ok": False, "error": f"Could not write profile: {e}"}
-    return {"ok": True, "saved": path, "name": data.get("name")}
+    user_id = request.state.user_id
+    saved = None
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    # users row must exist first: profiles.user_id references it
+                    db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+                    db.save_profile(conn, user_id, data)
+                    saved = "db"
+        except Exception:
+            pass
+    # The owner (or local dev with no Postgres) also updates the shared file the
+    # pipeline reads, so the owner's edits flow into their next refresh.
+    if _is_unlocked(request) or not db.has_db():
+        path = os.environ.get("PROFILE_PATH", "my_profile.json")
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            saved = saved or "file"
+        except Exception as e:
+            if saved is None:
+                return {"ok": False, "error": f"Could not write profile: {e}"}
+    if saved is None:
+        return {"ok": False, "error": "Could not save your profile. Try again."}
+    return {"ok": True, "name": data.get("name")}
 
 
 @app.post("/api/onboard")

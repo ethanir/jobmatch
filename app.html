@@ -307,6 +307,11 @@ async function loadJobs(){
     const r = await fetch(API + "/api/jobs?tier=all");
     const d = await r.json();
     JOBS = d.jobs || [];
+    // Land on the first tab that actually has results. A visitor's heuristic
+    // feed has no 'strong' roles, so defaulting to the strong tab would look
+    // empty; this keeps the default useful for every kind of feed.
+    const cc = counts();
+    if(JOBS.length && !cc[FILTER]){ FILTER = cc.strong ? "strong" : cc.possible ? "possible" : "all"; }
     document.getElementById("meta").textContent = JOBS.length + " roles";
     render();
   }catch(e){
