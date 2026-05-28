@@ -72,6 +72,8 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 | 📇 | **Recruiter workflow** | One-click **"Find recruiter on LinkedIn"** for every strong match. Paste the recruiter's name back in and the email greeting + subject personalize instantly. (Apollo contact lookup is wired in but requires Apollo's paid API tier — the free LinkedIn flow is the default and costs nothing.) |
 | 🖥️ | **Standalone viewer** | `make_ui.py` bakes the feed into a single `viewer.html` — no server, no build step. Filterable by Strong / Possible / Skip. Each role shows **Why you fit** (the positives) and **Worth knowing** (the honest concerns) split cleanly, plus matched skills and gaps. |
 | 🔎 | **Scan any role** | Paste a JD or URL from LinkedIn / Handshake → instant fit-rank + draft for one role you found yourself. |
+| 🧠 | **Smart free pre-filter** | A sharp heuristic scorer (exact-title, new-grad signal, SWE role family, seniority penalty, location, recency, skill saturation) ranks all ~50k jobs for **$0** and forwards only the genuinely-best to the LLM, so the paid step sees quality, not look-alikes. |
+| 💸 | **Bring-your-own-AI ranking (`export_rank.py` / `import_rank.py`)** | Rank your top jobs for **$0 API** using the free web version of Claude or ChatGPT: export a ready-to-paste file, paste it into the web chat, paste the result back. The smart pre-filter shrinks the set first so a chat window can handle it. |
 | 🛑 | **No auto-apply, no auto-send** | Deliberately. It protects your accounts, your sender reputation, and the quality of every application. |
 | 🔄 | **Hosted live feed + refresh** | Run `server.py` and open the app in a browser: a single **Refresh jobs** button re-runs the whole pipeline in the background with a **live progress bar**. New postings are appended and flagged **NEW**; previously-found roles never disappear. This is the hosted version that v3 ships. |
 
@@ -125,10 +127,10 @@ Three independent things, and only one of them costs money:
 | `TOP_N` | LLM ranks | Fresh-run cost | Re-run cost (cache) |
 |---|---|---|---|
 | 100 (default) | top 100 | ~$1 | ~$0 |
-| 200 | top 200 | ~$2 | ~$0 |
-| 0 | none | $0 | $0 |
+| 300 (good for a big pool) | top 300 | ~$2-3 | ~$0 |
+| 0 + web-AI export | top ~30-40 via free web chat | **$0** | $0 |
 
-So to "scan the best possible set of jobs": **seed more companies** (free) and keep `TOP_N` at 100–200. Wider net, smarter ranking, still ~$1–2 per fresh run and near-free on daily re-runs thanks to the cache.
+For a large registry (e.g. 475 companies / ~50k jobs), `TOP_N=100` is too shallow — your real matches can get crowded out, so bump to `TOP_N=300`. Or go fully free: `TOP_N=0` then use `export_rank.py` + your own web AI. The smart scorer makes either work well because it forwards quality, not noise.
 
 ---
 
@@ -143,7 +145,9 @@ jobmatch/
 ├── seed.py                 # widen the registry: validate + add companies (v2 coverage, $0 API)
 ├── bulk_seed.py            # large curated company list, validated + added in bulk ($0 API)
 ├── prefilter.py            # free rule-based cut before any LLM call
-├── score.py                # free heuristic funnel scorer ($0) — picks what the LLM sees
+├── score.py                # smart free heuristic funnel scorer ($0) — picks what the LLM sees
+├── export_rank.py          # export top jobs to rank with your free web AI ($0)
+├── import_rank.py          # merge web-AI rankings back into the feed ($0)
 ├── rank.py                 # LLM fit-ranking engine (parallel)
 ├── jobcache.py             # seen-job + ranking cache — re-runs only pay for new jobs
 ├── enrich.py               # recruiter contacts (Apollo) + email verify + outreach draft

@@ -89,6 +89,28 @@ the free plan blocks the people-search API (you'll see a 403, handled gracefully
 Without it, the LinkedIn fallback link does the same job for free. The draft email
 always generates regardless — it only needs your Anthropic key.
 
+## Rank deeper for a big registry
+With a large registry (e.g. 475 companies / ~50k jobs), the default `TOP_N=100` can
+be too shallow and crowd out your real matches. Bump it:
+```bash
+TOP_N=300 python3 main.py my_profile.json   # ~$2-3 fresh, ~$0 on cached re-runs
+```
+
+## Rank for $0 with your own web AI (bring-your-own-AI)
+No API key, no cost. The smart scorer shrinks ~50k jobs to a top batch, you let the
+free web Claude/ChatGPT rank that batch, then merge it back:
+```bash
+python3 export_rank.py 40        # writes rank_me.txt (top 40)
+# open Claude.ai or ChatGPT, paste all of rank_me.txt, send
+# copy the JSON array it returns into a file: ai_response.json
+python3 import_rank.py           # merges rankings back, $0
+python3 make_ui.py && open viewer.html
+```
+This works because the free heuristic pre-filter forwards only the best few dozen
+jobs, which is small enough for a chat window to rank well. It does not rank all
+50k for free (a chat can't take that much), but it removes the paid step for your
+top batch.
+
 ## Widen coverage (more companies, $0 API)
 ```bash
 python3 bulk_seed.py --dry-run  # validate the big built-in list, preview only

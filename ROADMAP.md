@@ -56,6 +56,8 @@ That's the whole remaining plan. Everything else is polish.
 | ✅ | Standalone viewer — Why-you-fit / Worth-knowing split, per-part copy buttons |
 | ✅ | Scan-any-role — paste a JD/URL for a one-off fit-rank + draft |
 | ✅ | Hosted live feed — `server.py` + `app.html`: a Refresh button re-runs the pipeline in the background with a live progress bar; new roles append and are flagged, old roles persist. (This is the foundation the v3 hosted version builds on.) |
+| ✅ | Smart free pre-filter — sharp heuristic (exact-title, new-grad, SWE family, seniority penalty, location, recency, skill saturation) so the top-N forwarded to the LLM is quality, not look-alikes. |
+| ✅ | Bring-your-own-AI ranking — `export_rank.py` + `import_rank.py` rank your top batch for $0 using the free web Claude/ChatGPT. |
 
 **Honest note on Apollo:** contact lookup is wired in, but Apollo's people-search API is gated behind their paid Organization tier (confirmed: free/trial keys return `API_INACCESSIBLE`). The tool detects this and falls back to the free LinkedIn flow automatically. **Do not pay for Apollo for this** — the volume need (a few recruiters) doesn't justify it; LinkedIn covers it free.
 
