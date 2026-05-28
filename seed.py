@@ -28,6 +28,7 @@ File format (one per line, ATS and token, optional name after a comma):
     ashby       ramp                Ramp
     # lines starting with # are ignored
 """
+import os
 import sys
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -162,6 +163,9 @@ def main():
 
     candidates = list(STARTER)
     for path in args:
+        if not os.path.exists(path):
+            print(f"  (skipping '{path}' — not a file)")
+            continue
         candidates += parse_file(path)
 
     # de-dupe candidates by (ats, token)
