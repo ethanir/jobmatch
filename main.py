@@ -1,12 +1,15 @@
 """
-Orchestrator — the FUNNEL version (cost-correct).
+Orchestrator - the FUNNEL version (cost-correct).
 
   profile -> pull jobs -> discover companies -> prefilter (free)
-          -> heuristic score ALL (free) -> LLM-rank only TOP_N (cheap)
+          -> heuristic score ALL (free) -> LLM-rank only NEW top-N (cheap)
+          -> reuse cached rankings for everything already scanned (free)
           -> heuristic-tier the rest (free) -> ranked feed
 
 Cost: a full run is ~$1 instead of ~$70, because we only pay the LLM for the
-top TOP_N most promising jobs. Set TOP_N=0 for a totally free run (no LLM).
+top TOP_N most promising jobs. The cache then makes every later run nearly free,
+because a job we already paid to rank is never re-ranked. Set TOP_N=0 for a
+totally free run (no LLM).
 
 Run:
     python main.py my_profile.json
@@ -43,7 +46,7 @@ def load_profile(path):
 
 
 def _linkedin_recruiter_search(company):
-    """A one-click LinkedIn search for a recruiter at this company — no Apollo needed."""
+    """A one-click LinkedIn search for a recruiter at this company, no Apollo needed."""
     import urllib.parse
     q = urllib.parse.quote(f"{company} recruiter")
     return f"https://www.linkedin.com/search/results/people/?keywords={q}"
@@ -73,7 +76,7 @@ def enrich_jobs(jobs, profile, cache, limit=15):
     for j in strong:
         if have_apollo:
             j["contacts"] = enrich.find_contacts(j)
-        # draft email — cached by job id so we only pay once per job
+        # draft email, cached by job id so we only pay once per job
         jid = j.get("_id", "")
         if jid in drafts:
             j["draft"] = drafts[jid]
@@ -102,7 +105,8 @@ def run(profile_path="profile.example.json", progress=None, top_n=None):
     top_n:    override TOP_N (how many jobs the LLM ranks); defaults to env/100.
     Returns a summary dict. Writes ranked_jobs.json / .csv as a side effect.
     The cache preserves previously-seen jobs, so re-runs APPEND new postings
-    (flagged is_new) without dropping the old ones.
+    (flagged is_new) without dropping the old ones, and never re-pay for a job
+    that was already LLM-ranked.
     """
     tn = TOP_N if top_n is None else int(top_n)
 
@@ -113,7 +117,7 @@ def run(profile_path="profile.example.json", progress=None, top_n=None):
             except Exception:
                 pass
         line = f"  {detail}" if detail else ""
-        print(f"[{pct:3d}%] {stage}{(' — ' + detail) if detail else ''}")
+        print(f"[{pct:3d}%] {stage}{(' - ' + detail) if detail else ''}")
 
     profile = load_profile(profile_path)
     emit("Loading profile", 2, profile.get("name", ""))
@@ -145,36 +149,50 @@ def run(profile_path="profile.example.json", progress=None, top_n=None):
             n_new_postings += 1
     emit("Checking for new postings", 70, f"{n_new_postings} brand-new")
 
+    # Apply every cached LLM ranking up front, to ALL jobs (not just this run's
+    # top-N). Two wins: (1) a job we already paid to rank is never re-ranked, so
+    # credits compound run over run; (2) a strong match never silently downgrades
+    # to a free heuristic tier just because it slipped out of the top-N on a
+    # bigger pull. This is what makes "it always saves and builds on" true.
+    n_cached_hits = 0
+    for j in jobs:
+        cached_fit = cache["ranked"].get(j["_id"])
+        if cached_fit:
+            j["fit"] = cached_fit
+            n_cached_hits += 1
+    emit("Loading cached rankings", 72, f"{n_cached_hits} already scanned (free)")
+
     top = jobs[:tn]
-    rest = jobs[tn:]
 
     if tn > 0:
+        # Pay the LLM ONLY for top-N jobs that have never been ranked before.
         need_llm = [j for j in top if j["_id"] not in cache["ranked"]]
-        cached = [j for j in top if j["_id"] in cache["ranked"]]
         if need_llm:
             import hydrate
             filled = hydrate.hydrate(need_llm)
-            emit("Fetching full descriptions", 72,
+            emit("Fetching full descriptions", 74,
                  f"{filled} hydrated of {len(need_llm)}")
-        emit("Ranking fit (AI)", 74, f"{len(need_llm)} new, {len(cached)} cached")
-        if need_llm:
+            emit("Ranking fit (AI)", 76, f"{len(need_llm)} new to rank, the only paid step")
             rank.run(need_llm, profile)               # the only paid step
             for j in need_llm:
-                cache["ranked"][j["_id"]] = j.get("fit") or score.heuristic_fit(j)
-        for j in cached:
-            j["fit"] = cache["ranked"][j["_id"]]
+                fit = j.get("fit")
+                # only store a real ranking, and remember it forever
+                if fit and fit.get("tier") in ("strong", "possible", "skip"):
+                    cache["ranked"][j["_id"]] = fit
+        else:
+            emit("Ranking fit (AI)", 76, "nothing new to pay for, all cached")
     else:
-        emit("Ranking fit (free)", 74, "TOP_N=0, no LLM")
-        for j in top:
-            j["fit"] = score.heuristic_fit(j)
+        emit("Ranking fit (free)", 76, "TOP_N=0, no LLM")
 
-    for j in rest:                        # everything else: free heuristic tier
-        j["fit"] = score.heuristic_fit(j)
+    # Anything still without a fit (never LLM-ranked) gets a free heuristic tier.
+    for j in jobs:
+        if not j.get("fit"):
+            j["fit"] = score.heuristic_fit(j)
 
     for j in jobs:
         cache["seen"].setdefault(j["_id"], jobcache.today())
 
-    all_jobs = top + rest
+    all_jobs = jobs
     tier_rank = {"strong": 0, "possible": 1, "skip": 2, "unknown": 3}
     all_jobs.sort(key=lambda j: (
         not j.get("is_new"),               # new jobs float to the top of their tier
