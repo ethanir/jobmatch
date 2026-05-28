@@ -300,4 +300,17 @@ async def onboard_resume(file: UploadFile = File(...)):
         os.unlink(tmp_path)
         return {"ok": True, "saved": path, "name": profile.get("name")}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        # Translate internal/developer errors into something a user can act on.
+        msg = str(e)
+        if "pypdf" in msg:
+            friendly = ("Couldn't read that PDF on the server. Try uploading a .docx or "
+                        ".txt version, or use the 'bring your own AI' option below.")
+        elif "python-docx" in msg or "docx" in msg.lower():
+            friendly = ("Couldn't read that Word file. Try a .pdf or .txt version, or use "
+                        "the 'bring your own AI' option below.")
+        elif "unsupported resume type" in msg:
+            friendly = "Please upload a PDF, DOCX, or TXT resume."
+        else:
+            friendly = ("Couldn't read that file. Try a different format, or use the "
+                        "'bring your own AI' option below.")
+        return {"ok": False, "error": friendly}
