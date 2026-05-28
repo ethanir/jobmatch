@@ -46,15 +46,15 @@ def apollo_people(company, domain):
     key = os.environ.get("APOLLO_API_KEY")
     if not key:
         return []
-    url = "https://api.apollo.io/v1/mixed_people/search"
+    url = "https://api.apollo.io/api/v1/mixed_people/search"
+    headers = {**HEADERS, "X-Api-Key": key, "Cache-Control": "no-cache"}
     payload = {
-        "api_key": key,
-        "q_organization_domains": domain,
+        "q_organization_domains_list": [domain] if domain else [],
         "person_titles": TARGET_TITLES,
         "page": 1, "per_page": 5,
     }
     try:
-        r = requests.post(url, json=payload, headers=HEADERS, timeout=TIMEOUT)
+        r = requests.post(url, json=payload, headers=headers, timeout=TIMEOUT)
         r.raise_for_status()
         out = []
         for p in r.json().get("people", []):
@@ -68,7 +68,8 @@ def apollo_people(company, domain):
             })
         return out
     except Exception as e:
-        print(f"    apollo error for {company}: {e}")
+        print(f"    apollo error for {company}: {e} "
+              f"(free plans often block people-search; LinkedIn fallback still works)")
         return []
 
 

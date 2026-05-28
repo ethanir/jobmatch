@@ -33,6 +33,14 @@ def shape(jobs):
             "matched": j.get("matched") or fit.get("matched_skills") or [],
             "missing": j.get("missing") or fit.get("missing_skills") or [],
             "is_new": bool(j.get("is_new")),
+            "draft": j.get("draft", ""),
+            "linkedin_search": j.get("linkedin_search", ""),
+            "contacts": [
+                {"name": c.get("name", ""), "title": c.get("title", ""),
+                 "email": c.get("email", ""),
+                 "status": c.get("email_status") or c.get("status") or "unknown"}
+                for c in (j.get("contacts") or [])
+            ],
         })
     return out
 
@@ -64,9 +72,56 @@ const TIERS = {
 };
 const {useState, useMemo} = React;
 
+function copyText(t){
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=t; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta);
+    return true;
+  }catch(e){ return false; }
+}
+
 function Label({children}){return <div style={{fontFamily:FU,fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:".09em",color:"#a39d8e",marginBottom:10}}>{children}</div>;}
 function Chips({items,kind}){const s=kind==="match"?{color:"#176844",background:"#eaf6ef",border:"1px solid #cfe7d8"}:{color:"#8a5d10",background:"#fbf3e2",border:"1px solid #ecdcb8"};return <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{items.map((it,i)=><span key={i} style={{...s,fontFamily:FU,fontSize:12.5,fontWeight:500,padding:"3px 10px",borderRadius:7}}>{it}</span>)}</div>;}
 function Ring({tier,score}){const t=TIERS[tier]||TIERS.possible;const r=26,c=2*Math.PI*r,off=c*(1-score/100);return(<div style={{position:"relative",width:64,height:64,flexShrink:0}}><svg width="64" height="64" style={{transform:"rotate(-90deg)"}}><circle cx="32" cy="32" r={r} fill="none" stroke="#ece8dd" strokeWidth="5"/><circle cx="32" cy="32" r={r} fill="none" stroke={t.dot} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off}/></svg><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><span style={{fontFamily:FD,fontSize:19,fontWeight:600,lineHeight:1,color:"#1a1a17"}}>{score}</span><span style={{fontFamily:FU,fontSize:8.5,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em",color:t.text}}>fit</span></div></div>);}
+
+function CopyBtn({text, label}){
+  const [done,setDone]=useState(false);
+  return <button className="btn" onClick={()=>{if(copyText(text)){setDone(true);setTimeout(()=>setDone(false),1500);}}} style={{cursor:"pointer",fontFamily:FU,fontSize:12.5,fontWeight:600,padding:"6px 12px",borderRadius:8,border:"1px solid #cfcabc",background:done?"#eaf6ef":"transparent",color:done?"#176844":"#1a1a17",whiteSpace:"nowrap"}}>{done?"Copied ✓":label}</button>;
+}
+
+function Outreach({job}){
+  const statusColor={valid:"#176844",verified:"#176844",risky:"#8a5d10",invalid:"#a13a2c"};
+  return (<div style={{marginTop:6,marginBottom:4}}>
+    <Label>Who to reach</Label>
+    {job.contacts.length>0 ? (
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        {job.contacts.map((c,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 14px",border:"1px solid #ece8dd",borderRadius:10,background:"#fffdf8"}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontFamily:FU,fontSize:14,fontWeight:600,color:"#2a2823"}}>{c.name||"Contact"}</div>
+              <div style={{fontFamily:FU,fontSize:12.5,color:"#8a8578",overflow:"hidden",textOverflow:"ellipsis"}}>{c.title}{c.email?" · "+c.email:""}</div>
+            </div>
+            {c.email && <CopyBtn text={c.email} label="Copy email"/>}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div style={{marginBottom:14}}>
+        <p style={{fontFamily:FU,fontSize:13.5,color:"#8a8578",margin:"0 0 10px",lineHeight:1.5}}>No recruiter email on file (add an Apollo key to auto-find them). Meanwhile, find the recruiter in one click:</p>
+        {job.linkedin_search && <a className="btn" href={job.linkedin_search} target="_blank" rel="noreferrer" style={{display:"inline-block",textDecoration:"none",fontFamily:FU,fontSize:13,fontWeight:600,padding:"9px 14px",borderRadius:9,border:"1px solid #cfcabc",color:"#1a1a17"}}>Find recruiter on LinkedIn →</a>}
+      </div>
+    )}
+    {job.draft && <>
+      <Label>Your outreach email — ready to send</Label>
+      <div style={{border:"1px solid #ece8dd",borderRadius:12,background:"#fbfaf4",padding:"16px 18px",marginBottom:10}}>
+        <pre style={{margin:0,fontFamily:FB,fontSize:14.5,lineHeight:1.55,color:"#33312a",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{job.draft}</pre>
+      </div>
+      <CopyBtn text={job.draft} label="Copy email draft"/>
+    </>}
+  </div>);
+}
 
 function App(){
   const all = window.JOBS || [];
@@ -106,7 +161,7 @@ function App(){
             </div>);})}
         </div>
       </section>
-      {job && <section style={{position:"sticky",top:92,border:"1px solid #e4e0d6",borderRadius:16,background:"#fdfcf8",overflow:"hidden"}}>
+      {job && <section style={{position:"sticky",top:92,maxHeight:"calc(100vh - 120px)",overflowY:"auto",border:"1px solid #e4e0d6",borderRadius:16,background:"#fdfcf8"}}>
         <div style={{padding:"26px 28px 22px",borderBottom:"1px solid #ece8dd",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
           <div>
             <div style={{fontFamily:FU,fontSize:13,fontWeight:600,color:"#6f6a5d",textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>{job.company}</div>
@@ -124,7 +179,8 @@ function App(){
             {job.matched.length>0 && <div style={{flex:1,minWidth:160}}><Label>You match</Label><Chips items={job.matched} kind="match"/></div>}
             {job.missing.length>0 && <div style={{flex:1,minWidth:160}}><Label>Gaps</Label><Chips items={job.missing} kind="gap"/></div>}
           </div>
-          {job.url && <a className="btn" href={job.url} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",textDecoration:"none",fontFamily:FU,fontSize:14,fontWeight:600,padding:"13px 18px",borderRadius:10,background:"#1a1a17",color:"#f6f4ef"}}>Open the posting →</a>}
+          {(job.contacts.length>0 || job.draft || job.linkedin_search) && <Outreach job={job}/>}
+          {job.url && <a className="btn" href={job.url} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",textDecoration:"none",fontFamily:FU,fontSize:14,fontWeight:600,padding:"13px 18px",borderRadius:10,background:"#1a1a17",color:"#f6f4ef",marginTop:16}}>Open the posting →</a>}
         </div>
       </section>}
     </main>
