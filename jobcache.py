@@ -26,10 +26,17 @@ BOOTSTRAP (belt and suspenders):
   them. We only trust real LLM rankings here, never the free heuristic ones, so a
   heuristic 'possible' can still be promoted to a verified 'strong' later.
 
-NOTE for the future per-user build:
-  Today there is one shared profile, so keying the cache by job_id alone is
-  correct. When you add per-user profiles, the key must become
-  (profile_id, job_id), because the same job scores differently per person.
+  The bootstrap RECOMPUTES the id from each job's fields rather than trusting any
+  `_id` baked into the file, so the cache is always keyed by the current
+  canonical job_id. That makes the id normalization safe to evolve without
+  orphaning rankings and triggering a one-time re-charge.
+
+JOB ID CONTRACT:
+  job_id MUST stay byte-for-byte identical to db.job_hash. The pipeline keys
+  cache lookups by this value, and the per-user Postgres path reads them back by
+  the same value. If they drift, jobs with cosmetic differences (e.g. a trailing
+  space in the title) miss the cache and the LLM is silently re-charged for them
+  on every run.
 """
 import datetime
 import hashlib
@@ -43,8 +50,11 @@ BOOTSTRAP_FEED = os.environ.get("BOOTSTRAP_FEED", "ranked_jobs.json")
 
 
 def job_id(job):
-    raw = f"{job.get('company','')}|{job.get('title','')}|{job.get('location','')}".lower()
-    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+    """Stable id for a job posting: company + title + location, each lowercased
+    and whitespace-stripped, None-safe. Identical to db.job_hash on purpose."""
+    raw = "|".join(str(job.get(k, "") or "").lower().strip()
+                   for k in ("company", "title", "location"))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def today():
@@ -73,7 +83,10 @@ def _is_llm_fit(fit):
 
 def _bootstrap_from_feed():
     """Seed a cold cache from the committed ranked_jobs.json so a fresh
-    container/volume does not re-pay for jobs already ranked in the repo."""
+    container/volume does not re-pay for jobs already ranked in the repo.
+
+    Ids are recomputed from each job's fields (not read from any stored `_id`)
+    so the cache is keyed by the current canonical job_id."""
     cache = _empty()
     if not os.path.exists(BOOTSTRAP_FEED):
         return cache
@@ -84,7 +97,7 @@ def _bootstrap_from_feed():
         return cache
     day = today()
     for j in jobs:
-        jid = j.get("_id") or job_id(j)
+        jid = job_id(j)
         cache["seen"].setdefault(jid, day)
         fit = j.get("fit")
         if _is_llm_fit(fit):

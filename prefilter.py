@@ -9,7 +9,7 @@ import re
 
 SWE_RX = re.compile(
     r"software|engineer|developer|backend|back.?end|front.?end|full.?stack|swe|"
-    r"web|platform|infrastructure|programmer",
+    r"\bsde\b|web|platform|infrastructure|programmer",
     re.I,
 )
 SENIOR_RX = re.compile(

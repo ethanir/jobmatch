@@ -1,11 +1,18 @@
 """
-db.py — Postgres layer for per-user Jobrolu.
+db.py - Postgres layer for per-user Jobrolu.
 
 Designed to coexist with the file fallback that server.py already uses:
-connect() returns None when DATABASE_URL is unset or the driver is missing,
+get_conn() yields None when DATABASE_URL is unset or the driver is missing,
 so every consumer degrades safely. Tables are created on first successful
 connect, so the moment Postgres is wired up on Railway, per-user mode is on
 and the feed will not 500 because tables are missing (that was the prior bug).
+
+Connections are served from a pooled, self-healing context manager (get_conn).
+The pool is purely an optimization layer: if it cannot hand back a healthy
+connection for any reason, get_conn falls back to a fresh direct connection,
+so this is never worse than opening one connection per request, and never
+leaks a connection (it is always returned to the pool or closed). This is what
+keeps per-user traffic from exhausting Railway's connection limit.
 
 Schema (all four tables created lazily, IF NOT EXISTS):
   users      every visitor; browser-id PK; is_owner flags the human who owns
@@ -20,14 +27,22 @@ Schema (all four tables created lazily, IF NOT EXISTS):
              keep visitor traffic from running away.
 
 Public surface (kept stable for server.py):
-  has_db, connect, job_hash, fetch_ranked
-Plus new helpers used by the per-user pipeline:
+  has_db, connect, get_conn, job_hash, fetch_ranked
+Plus the per-user helpers:
   ensure_user, get_user, get_profile, save_profile,
   get_ranking, get_rankings_map, save_ranking,
   get_usage, increment_usage
+
+NOTE on job ids: job_hash here is identical to jobcache.job_id (same
+company|title|location normalization). The two MUST stay in lockstep, because
+the pipeline keys cache lookups by `_id` (jobcache.job_id) and Phase 3 reads
+them back from this table. save_ranking therefore prefers the job's own `_id`
+so the round-trip is exact.
 """
 import hashlib
 import os
+import threading
+from contextlib import contextmanager
 from typing import Optional
 
 try:
@@ -40,6 +55,11 @@ except Exception:
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 _schema_ready = False
+
+# Pooling state. The pool is created lazily on first use and guarded by a lock.
+_pool = None
+_pool_failed = False
+_pool_lock = threading.Lock()
 
 
 SCHEMA_SQL = """
@@ -93,35 +113,143 @@ def has_db() -> bool:
     return bool(DATABASE_URL) and _HAS_DRIVER
 
 
-def connect():
-    """Open a Postgres connection, or return None if Postgres is not configured.
-    The first successful connect creates the schema (IF NOT EXISTS), so setting
-    DATABASE_URL on Railway is enough to bring per-user mode online.
-    Callers are responsible for conn.close().
-    """
+def _ensure_schema(conn) -> None:
+    """Create the schema once per process (IF NOT EXISTS, so it is idempotent).
+    Never raises: a failed create leaves _schema_ready False so we retry on the
+    next call rather than crash the request."""
     global _schema_ready
+    if _schema_ready:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(SCHEMA_SQL)
+        conn.commit()
+        _schema_ready = True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
+def connect():
+    """Open a single direct Postgres connection, or None if Postgres is not
+    configured. The caller is responsible for conn.close(). Kept for callers
+    that manage their own connection lifecycle; server.py uses get_conn()."""
     if not has_db():
         return None
     try:
         conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     except Exception:
         return None
-    if not _schema_ready:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(SCHEMA_SQL)
-            conn.commit()
-            _schema_ready = True
-        except Exception:
-            conn.rollback()
-            # Leave the flag false; we'll retry on the next call rather than
-            # crash the request. The caller will still get a usable conn.
+    _ensure_schema(conn)
     return conn
 
 
+def _get_pool():
+    """Lazily build the connection pool. Returns the pool, or None if pooling is
+    unavailable (in which case get_conn falls back to direct connections)."""
+    global _pool, _pool_failed
+    if _pool is not None or _pool_failed:
+        return _pool
+    if not has_db():
+        return None
+    try:
+        from psycopg2 import pool as _pgpool
+        mx = max(2, int(os.environ.get("DB_POOL_MAX", "10")))
+        _pool = _pgpool.ThreadedConnectionPool(
+            1, mx, dsn=DATABASE_URL, cursor_factory=RealDictCursor,
+        )
+    except Exception:
+        _pool = None
+        _pool_failed = True
+    return _pool
+
+
+@contextmanager
+def get_conn():
+    """Yield a healthy Postgres connection (schema ensured), or None if Postgres
+    is unavailable. Always returns the connection to the pool (or closes a direct
+    one) on exit, and rolls back any open transaction first so a pooled
+    connection is never reused mid-transaction.
+
+    A pooled connection that has died (Postgres restart, idle timeout) is
+    detected by a cheap SELECT 1 probe and discarded; if the pool cannot give a
+    live connection, we open a fresh direct one. So the worst case equals the
+    old behaviour (a connection per request), never worse, and never a leak.
+    """
+    if not has_db():
+        yield None
+        return
+
+    with _pool_lock:
+        pool = _get_pool()
+
+    conn = None
+    from_pool = False
+
+    if pool is not None:
+        try:
+            conn = pool.getconn()
+            from_pool = True
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                conn.rollback()
+            except Exception:
+                # dead connection: drop it and fall through to a fresh one
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                conn = None
+                from_pool = False
+        except Exception:
+            # pool exhausted or errored: fall back to a direct connection
+            conn = None
+            from_pool = False
+
+    if conn is None:
+        try:
+            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            from_pool = False
+        except Exception:
+            yield None
+            return
+
+    try:
+        _ensure_schema(conn)
+        yield conn
+    finally:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if from_pool and pool is not None:
+            try:
+                pool.putconn(conn)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        else:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def job_hash(job) -> str:
-    """Stable id for a job posting: company + title + location, lowercased and
-    whitespace-stripped, so cosmetic differences collide on the same id."""
+    """Stable id for a job posting: company + title + location, each lowercased
+    and whitespace-stripped, so cosmetic differences collide on the same id.
+
+    This MUST stay byte-for-byte identical to jobcache.job_id, or per-user cache
+    lookups (Phase 3) will miss and silently re-charge the LLM for the same job
+    every run."""
     raw = "|".join(str(job.get(k, "") or "").lower().strip()
                    for k in ("company", "title", "location"))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
@@ -129,13 +257,18 @@ def job_hash(job) -> str:
 
 # ---------------------------------------------------------------- users
 def ensure_user(conn, user_id: str, is_owner: bool = False) -> None:
-    """Create the user row if missing; otherwise refresh last_seen_at."""
+    """Create the user row if missing; otherwise refresh last_seen_at. is_owner
+    is sticky and only ever promoted (a normal page load with is_owner=False can
+    never demote an already-owner row, and an unlock with is_owner=True promotes
+    and stays)."""
     if not conn or not user_id:
         return
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO users (id, is_owner) VALUES (%s, %s) "
-            "ON CONFLICT (id) DO UPDATE SET last_seen_at = NOW()",
+            "ON CONFLICT (id) DO UPDATE SET "
+            "  last_seen_at = NOW(), "
+            "  is_owner = users.is_owner OR EXCLUDED.is_owner",
             (user_id, is_owner),
         )
     conn.commit()
@@ -232,10 +365,15 @@ def get_rankings_map(conn, user_id: str) -> dict:
 def save_ranking(conn, user_id: str, job: dict, fit: dict, ranked_by: str) -> None:
     """Upsert one ranking. `job` carries the listing columns
     (company/title/location); `fit` carries tier/score/reasons/matched/missing.
-    `ranked_by` is one of 'ai_paid', 'ai_byoai', 'heuristic'."""
+    `ranked_by` is one of 'ai_paid', 'ai_byoai', 'heuristic'.
+
+    The job key prefers the pipeline's own id (`id` or `_id`) and only computes
+    job_hash as a last resort, so the value stored here matches the value the
+    pipeline uses to look the ranking back up (jobcache.job_id). Get this wrong
+    and the cache silently misses for that job on every run."""
     if not conn or not user_id or not fit:
         return
-    jid = job.get("id") or job_hash(job)
+    jid = job.get("id") or job.get("_id") or job_hash(job)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO rankings ("

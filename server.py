@@ -13,6 +13,14 @@ If ACCESS_CODE is unset, the gate is OFF (handy for local dev).
 Optionally set COOKIE_SECRET to a fixed random string so the unlock survives
 redeploys (otherwise it resets each restart and you re-enter the code once).
 
+Identity (Phase 2):
+    Every visitor gets a stable per-browser id in an httponly cookie (jr_uid),
+    resolved on every request as request.state.user_id and best-effort upserted
+    into the users table. This is the foundation for per-user profiles and
+    rankings. It is invisible today: the feed still serves the shared file feed
+    for everyone, because no one has per-user rankings yet. See the browser
+    identity section below.
+
 Data source resolution:
     1. If DATABASE_URL is set and reachable -> Postgres (db.py).
     2. Otherwise -> read ranked_jobs.json produced by main.py (dev fallback).
@@ -25,6 +33,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
@@ -40,7 +49,7 @@ import jobcache
 
 class ScanInput(BaseModel):
     text: str
-    user_id: str = "me"
+    user_id: str = "me"   # accepted for backward compat; identity comes from the cookie
 
 
 # ---------------------------------------------------------------- refresh state
@@ -113,6 +122,60 @@ def _require_unlock(request):
         raise HTTPException(status_code=401, detail="locked")
 
 
+# ---------------------------------------------------------------- browser identity
+# Every visitor gets a stable per-browser id in an httponly cookie (jr_uid). The
+# server resolves the current user_id from it on every request and best-effort
+# upserts a users row, so per-user profiles and rankings have something to attach
+# to. This phase is invisible to visitors: the feed still serves the shared file
+# because no one has per-user rankings yet, so behaviour is unchanged.
+#
+# Owner identity: the human who owns the deployment is whoever holds a valid
+# unlock cookie (jr_access). On unlock we promote their users row to is_owner
+# (sticky). Optionally set OWNER_USER_ID in env to a long RANDOM value (e.g. a
+# uuid4 hex) to give the owner ONE identity across their devices: on unlock the
+# owner's browser adopts it. Leaving it unset is fine, each browser the owner
+# unlocks on simply becomes its own owner row. Spending is ALWAYS gated by the
+# unlock cookie regardless of jr_uid, so this can never let a visitor spend.
+OWNER_USER_ID = os.environ.get("OWNER_USER_ID", "").strip()
+JR_UID_COOKIE = "jr_uid"
+_UID_MAX_AGE = 60 * 60 * 24 * 365 * 2   # ~2 years
+
+
+def _valid_uid(v) -> bool:
+    """Accept only an id we would have issued: a uuid, or the configured
+    OWNER_USER_ID. Anything malformed or oversized is rejected and re-minted."""
+    if not v or len(v) > 64:
+        return False
+    if OWNER_USER_ID and v == OWNER_USER_ID:
+        return True
+    try:
+        uuid.UUID(v)
+        return True
+    except Exception:
+        return False
+
+
+@app.middleware("http")
+async def _identity(request: Request, call_next):
+    """Resolve (or mint) the browser id and stash it on request.state.user_id.
+    The Set-Cookie only goes out when we minted a fresh id, so returning visitors
+    are not re-cookied on every request."""
+    uid = request.cookies.get(JR_UID_COOKIE)
+    fresh = None
+    if not _valid_uid(uid):
+        uid = uuid.uuid4().hex
+        fresh = uid
+    request.state.user_id = uid
+    response = await call_next(request)
+    if fresh:
+        response.set_cookie(
+            JR_UID_COOKIE, fresh,
+            max_age=_UID_MAX_AGE, httponly=True, samesite="lax",
+            secure=os.environ.get("COOKIE_SECURE", "1") == "1",
+        )
+    return response
+
+
 RANKED_FILE = os.environ.get("RANKED_FILE", "ranked_jobs.json")
 
 
@@ -154,10 +217,11 @@ def _from_file():
 
 
 def _from_db(user_id, tier):
-    conn = db.connect()
-    if not conn:
-        return None
-    try:
+    """Per-user ranked feed from Postgres, or None to fall back to the file feed
+    (Postgres off, unreachable, or this user has no rankings yet)."""
+    with db.get_conn() as conn:
+        if not conn:
+            return None
         rows = db.fetch_ranked(conn, user_id)
         if not rows:
             # Postgres is on but this user has no rankings yet (typical right
@@ -174,8 +238,6 @@ def _from_db(user_id, tier):
                 "missing": r["missing"] or [],
             }))
         return out
-    finally:
-        conn.close()
 
 
 def _load(user_id="me", tier=None):
@@ -197,14 +259,24 @@ def health():
 
 
 @app.get("/api/jobs")
-def list_jobs(user_id: str = "me", tier: str = "all"):
+def list_jobs(request: Request, tier: str = "all"):
+    user_id = request.state.user_id
+    # Best-effort: make sure this browser has a users row (Phase 2 identity).
+    # is_owner is set from the unlock cookie and is sticky (only ever promoted).
+    # This must never break the feed, so any DB error is swallowed.
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+    except Exception:
+        pass
     data, source = _load(user_id, tier)
     return {"source": source, "count": len(data), "jobs": data}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str, user_id: str = "me"):
-    data, _ = _load(user_id)
+def get_job(request: Request, job_id: str):
+    data, _ = _load(request.state.user_id)
     for j in data:
         if j["id"] == job_id:
             return j
@@ -213,16 +285,11 @@ def get_job(job_id: str, user_id: str = "me"):
 
 def _load_profile(user_id):
     """Load the user's profile from DB or my_profile.json fallback."""
-    conn = db.connect()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT data FROM profiles WHERE user_id = %s", (user_id,))
-                row = cur.fetchone()
-                if row:
-                    return row["data"]
-        finally:
-            conn.close()
+    with db.get_conn() as conn:
+        if conn:
+            prof = db.get_profile(conn, user_id)
+            if prof is not None:
+                return prof
     for path in ("my_profile.json", "profile.example.json"):
         if os.path.exists(path):
             with open(path) as f:
@@ -237,7 +304,7 @@ def scan_endpoint(request: Request, inp: ScanInput):
     _require_unlock(request)
     if not inp.text.strip():
         raise HTTPException(status_code=400, detail="text is empty")
-    profile = _load_profile(inp.user_id)
+    profile = _load_profile(request.state.user_id)
     if not profile:
         raise HTTPException(status_code=400, detail="no profile found for user")
     try:
@@ -351,7 +418,8 @@ def unlock_status(request: Request):
 
 @app.post("/api/unlock")
 async def do_unlock(request: Request):
-    """Check the access code; on success set the unlock cookie."""
+    """Check the access code; on success set the unlock cookie and promote this
+    browser's users row to owner."""
     try:
         data = await request.json()
     except Exception:
@@ -361,12 +429,30 @@ async def do_unlock(request: Request):
         # gate disabled; treat as already unlocked
         return {"ok": True}
     if code and _secrets.compare_digest(code, ACCESS_CODE):
+        # Promote the owner's users row (sticky). If OWNER_USER_ID is set, the
+        # owner is that fixed identity across devices; otherwise it's this
+        # browser's id.
+        owner_uid = OWNER_USER_ID or request.state.user_id
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    db.ensure_user(conn, owner_uid, is_owner=True)
+        except Exception:
+            pass
         resp = JSONResponse({"ok": True})
         resp.set_cookie(
             "jr_access", _valid_token(),
             max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax",
             secure=os.environ.get("COOKIE_SECURE", "1") == "1",
         )
+        # Adopt the canonical owner identity on this browser so the owner is one
+        # user across devices. Safe: spending is gated by jr_access, not jr_uid.
+        if OWNER_USER_ID and OWNER_USER_ID != request.state.user_id:
+            resp.set_cookie(
+                JR_UID_COOKIE, OWNER_USER_ID,
+                max_age=_UID_MAX_AGE, httponly=True, samesite="lax",
+                secure=os.environ.get("COOKIE_SECURE", "1") == "1",
+            )
         return resp
     return JSONResponse({"ok": False, "error": "Incorrect code."}, status_code=403)
 
