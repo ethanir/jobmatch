@@ -16,8 +16,8 @@ ToS-friendly sources only. No LinkedIn/Handshake mass scraping (bans users).
 """
 import html
 import re
-import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 TIMEOUT = 20
 HEADERS = {"User-Agent": "Mozilla/5.0 (job-finder)"}
@@ -124,18 +124,31 @@ ATS = {"greenhouse": from_greenhouse, "lever": from_lever, "ashby": from_ashby,
        "workable": from_workable}
 
 
-def pull_all(companies, include_repo=True):
+def pull_all(companies, include_repo=True, max_workers=20):
+    """Pull every company's jobs in parallel. ~20x faster than sequential."""
     jobs = []
-    for c in companies:
+
+    def _pull(c):
         fn = ATS.get(c["ats"])
         if not fn:
-            print(f"  ! unknown ats '{c['ats']}' for {c['name']}"); continue
+            return c, None, "unknown ats"
         try:
-            got = fn(c["token"], c["name"]); jobs.extend(got)
-            print(f"  {c['name']:<18} {len(got):>4} ({c['ats']})")
+            return c, fn(c["token"], c["name"]), None
         except Exception as e:
-            print(f"  ! {c['name']} failed: {e}")
-        time.sleep(0.3)
+            return c, None, str(e)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [ex.submit(_pull, c) for c in companies]
+        done = 0
+        for fut in as_completed(futures):
+            c, got, err = fut.result()
+            done += 1
+            if err:
+                continue  # quietly skip dead boards; they're common and noisy
+            jobs.extend(got)
+            if done % 25 == 0:
+                print(f"  pulled {done}/{len(companies)} companies, {len(jobs)} jobs so far")
+
     if include_repo:
         try:
             got = from_simplify_repo(); jobs.extend(got)

@@ -1,34 +1,21 @@
 """
-Orchestrator. Runs the whole pipeline:
-
-  profile -> pull jobs (registry + seeds) -> discover new companies
-          -> prefilter (free) -> LLM rank (paid) -> ranked feed + contacts
-
-Output: ranked_jobs.csv / ranked_jobs.json + a growing registry.json
-
-Run:
-    pip install -r requirements.txt
-    python main.py                  # profile.example.json, dry run
-    export ANTHROPIC_API_KEY=sk-...
-    python main.py my_profile.json
-
-Deliberately does NOT auto-apply or auto-send email. It surfaces the best-fit
-roles + (later) the recruiter to contact; the user acts via a guided flow.
+Orchestrator — the FUNNEL version (cost-correct).
 """
 import csv
 import datetime
 import json
-import sys
-
 import os
+import sys
 
 import sources
 import registry
 import prefilter
+import score
 import rank
 import enrich
 
-# Seed companies (the registry grows itself from here). Edit / expand freely.
+TOP_N = int(os.environ.get("TOP_N", "100"))
+
 SEED_COMPANIES = [
     {"name": "Stripe",     "ats": "greenhouse", "token": "stripe"},
     {"name": "Databricks", "ats": "greenhouse", "token": "databricks"},
@@ -43,12 +30,9 @@ def load_profile(path):
 
 
 def enrich_contacts(jobs, limit=15):
-    """Find recruiter/EM contacts for strong-tier jobs only (cost control).
-    Degrades gracefully: with no APOLLO_API_KEY, leaves contacts empty."""
     for j in jobs:
         j["contacts"] = []
     if not os.environ.get("APOLLO_API_KEY"):
-        print("  [no APOLLO_API_KEY] skipping contact enrichment.")
         return jobs
     strong = [j for j in jobs if (j.get("fit") or {}).get("tier") == "strong"][:limit]
     print(f"  enriching {len(strong)} strong-tier jobs...")
@@ -66,39 +50,62 @@ def main():
     profile = load_profile(profile_path)
     print(f"Profile: {profile.get('name')} | targets: {', '.join(profile.get('target_titles', []))}\n")
 
-    # Companies = seeds + everything the registry has learned so far
     reg = registry.load()
     companies = {f"{c['ats']}:{c['token']}": c for c in SEED_COMPANIES}
-    companies.update({k: v for k, v in reg.items()})
+    companies.update(reg)
     company_list = list(companies.values())
-    print(f"Pulling jobs from {len(company_list)} known companies + curated repo...")
+    print(f"Pulling jobs from {len(company_list)} companies + curated repo...")
     jobs = sources.pull_all(company_list, include_repo=True)
     print(f"  total pulled: {len(jobs)}\n")
 
-    # Learn new companies from the URLs we just saw
     reg, n_new = registry.discover_from_jobs(jobs, reg)
     registry.save(reg)
-    print(f"Registry: +{n_new} new companies discovered -> {len(reg)} total known\n")
+    print(f"Registry: +{n_new} new -> {len(reg)} total known\n")
 
     print("Prefiltering...")
     jobs = prefilter.prefilter(jobs, profile)
     print(f"  survived prefilter: {len(jobs)}\n")
 
-    print("Ranking (LLM)...")
-    jobs = rank.run(jobs, profile)
-    jobs = enrich_contacts(jobs)
+    print("Free heuristic scoring (no API cost)...")
+    jobs = score.rank_free(jobs, profile)
+    print(f"  scored {len(jobs)} jobs; top free score: {jobs[0]['_score'] if jobs else 0}\n")
+
+    top = jobs[:TOP_N]
+    rest = jobs[TOP_N:]
+
+    if TOP_N > 0:
+        print(f"LLM-ranking the top {len(top)} (the only paid step)...")
+        rank.run(top, profile)
+    else:
+        print("TOP_N=0 -> skipping LLM entirely (free run).\n")
+        for j in top:
+            j["fit"] = score.heuristic_fit(j)
+
+    for j in rest:
+        j["fit"] = score.heuristic_fit(j)
+
+    all_jobs = top + rest
+    tier_rank = {"strong": 0, "possible": 1, "skip": 2, "unknown": 3}
+    all_jobs.sort(key=lambda j: (
+        tier_rank.get((j.get("fit") or {}).get("tier", "unknown"), 3),
+        -((j.get("fit") or {}).get("score") or 0),
+    ))
+
+    all_jobs = enrich_contacts(all_jobs)
 
     with open("ranked_jobs.json", "w") as f:
-        json.dump(jobs, f, indent=2)
+        json.dump(all_jobs, f, indent=2)
     with open("ranked_jobs.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tier", "score", "company", "title", "location", "posted", "url", "reasons"])
-        for j in jobs:
+        for j in all_jobs:
             fit = j.get("fit") or {}
             w.writerow([fit.get("tier", ""), fit.get("score", ""), j["company"], j["title"],
                         j["location"], fmt_date(j.get("date_posted")), j["url"],
                         " | ".join(fit.get("reasons", []))])
-    print(f"\nDone. {len(jobs)} ranked roles -> ranked_jobs.csv / ranked_jobs.json")
+
+    strong = sum(1 for j in all_jobs if (j.get('fit') or {}).get('tier') == 'strong')
+    print(f"\nDone. {len(all_jobs)} jobs ranked ({strong} strong) -> ranked_jobs.csv / ranked_jobs.json")
 
 
 if __name__ == "__main__":
