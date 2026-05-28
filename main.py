@@ -42,15 +42,52 @@ def load_profile(path):
         return json.load(f)
 
 
-def enrich_contacts(jobs, limit=15):
+def _linkedin_recruiter_search(company):
+    """A one-click LinkedIn search for a recruiter at this company — no Apollo needed."""
+    import urllib.parse
+    q = urllib.parse.quote(f"{company} recruiter")
+    return f"https://www.linkedin.com/search/results/people/?keywords={q}"
+
+
+def enrich_jobs(jobs, profile, cache, limit=15):
+    """For strong-tier jobs: find contacts (if Apollo set) + draft a tailored email.
+    Drafts are cached by job id so re-runs don't re-pay. Every job also gets a
+    one-click LinkedIn recruiter-search link so the user never has to think."""
     for j in jobs:
-        j["contacts"] = []
-    if not os.environ.get("APOLLO_API_KEY"):
-        return jobs
+        j.setdefault("contacts", [])
+        j["linkedin_search"] = _linkedin_recruiter_search(j.get("company", ""))
+
     strong = [j for j in jobs if (j.get("fit") or {}).get("tier") == "strong"][:limit]
-    print(f"  enriching {len(strong)} strong-tier jobs...")
+    if not strong:
+        return jobs
+
+    have_apollo = bool(os.environ.get("APOLLO_API_KEY"))
+    client = None
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        import anthropic
+        client = anthropic.Anthropic()
+    profile_json = json.dumps(profile, indent=2)
+    drafts = cache.setdefault("drafts", {})
+
+    print(f"  preparing {len(strong)} strong-fit jobs (contacts + draft emails)...")
     for j in strong:
-        j["contacts"] = enrich.find_contacts(j)
+        if have_apollo:
+            j["contacts"] = enrich.find_contacts(j)
+        # draft email — cached by job id so we only pay once per job
+        jid = j.get("_id", "")
+        if jid in drafts:
+            j["draft"] = drafts[jid]
+        elif client:
+            contact = (j["contacts"][0] if j.get("contacts")
+                       else {"name": "there", "title": "the hiring team"})
+            try:
+                j["draft"] = enrich.draft_email(client, profile_json, j, contact)
+                drafts[jid] = j["draft"]
+            except Exception as e:
+                print(f"    draft failed for {j.get('company')}: {e}")
+                j["draft"] = ""
+        else:
+            j["draft"] = ""
     return jobs
 
 
@@ -118,7 +155,6 @@ def main():
     # Remember everything we saw this run (so next run knows what's new).
     for j in jobs:
         cache["seen"].setdefault(j["_id"], jobcache.today())
-    jobcache.save(cache)
 
     all_jobs = top + rest
     tier_rank = {"strong": 0, "possible": 1, "skip": 2, "unknown": 3}
@@ -128,7 +164,8 @@ def main():
         -((j.get("fit") or {}).get("score") or 0),
     ))
 
-    all_jobs = enrich_contacts(all_jobs)
+    all_jobs = enrich_jobs(all_jobs, profile, cache)
+    jobcache.save(cache)                   # save AFTER drafts are cached too
 
     with open("ranked_jobs.json", "w") as f:
         json.dump(all_jobs, f, indent=2)

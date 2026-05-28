@@ -1,55 +1,92 @@
-# Running the full stack
+# Running JobMatch
 
-Three pieces: the **pipeline** (produces ranked jobs), the **API** (serves them), and the **UI** (displays them). Postgres is optional — without it the API reads `ranked_jobs.json`.
+Everything runs locally with Python 3.9+. The only required key is an Anthropic
+API key (for ranking + draft emails). Apollo is optional.
 
-## 1. Onboard — build your profile from a resume
+## Install (once)
 ```bash
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-...      # needed to parse the resume into a profile
-python onboard.py my_resume.pdf my_profile.json   # pdf, docx, txt, or md
+pip install --user -r requirements.txt
 ```
-Without an API key it writes an empty profile template you can fill manually.
 
-## 2. Pipeline — produce the ranked data (one-shot)
-
-## 2. API — serve the data
+## The everyday loop
 ```bash
-uvicorn server:app --reload --port 8000
-# GET http://127.0.0.1:8000/api/health   → {"status":"ok","source":"file"|"db"}
-# GET http://127.0.0.1:8000/api/jobs?tier=strong
-# POST http://127.0.0.1:8000/api/scan     → {"text":"<JD or URL>","user_id":"me"}
-```
-With no `DATABASE_URL`, it serves `ranked_jobs.json`. With Postgres set, it serves from the DB.
+cd jobmatch
+export ANTHROPIC_API_KEY=sk-...        # required for ranking + draft emails
+export APOLLO_API_KEY=...              # optional: recruiter contact lookup
 
-## 3. UI — display the data
-`ui/App.jsx` is a standalone React component. Drop it into any React app (Vite recommended) as the root:
-```bash
-npm create vite@latest jobmatch-ui -- --template react
-# replace src/App.jsx with ui/App.jsx, then:
-npm run dev
+python3 main.py my_profile.json        # pull -> funnel -> rank -> cache -> draft
+python3 make_ui.py                     # build viewer.html
+open viewer.html                       # look at your ranked feed
 ```
-The UI fetches from `API_BASE` (default `http://127.0.0.1:8000`). If the API is down, it automatically renders the bundled sample data so it never shows a blank screen. The header dot shows green for **live** data, amber for **sample**.
+The key resets when you open a new terminal, so re-`export` it each session
+(or add it to `~/.zshrc` to persist).
 
-## 4. Postgres (optional, for persistence + freshness)
+## 1. Build your profile from a resume
 ```bash
-createdb jobmatch
-export DATABASE_URL=postgresql://localhost:5432/jobmatch
-python -c "import db; c=db.connect(); db.init_db(c); print('schema created')"
+python3 onboard.py my_resume.pdf my_profile.json    # pdf, docx, txt, or md
 ```
-Then on each scheduled pull, `db.sync_jobs()` upserts the batch and marks any job
-that dropped out of the pull as dead — that's the freshness/death-detection.
+Then open `my_profile.json` and fill anything the resume didn't state — especially
+`target_titles`, `work_authorization`, `requires_sponsorship`, and `preferences`
+(locations / remote). Better profile = sharper ranking.
 
-## 5. Keep it fresh — the scheduled worker
+## 2. Rank — and the cost model
 ```bash
-python worker.py --once             # one refresh cycle (good for cron)
-python worker.py --interval 60      # loop every 60 minutes
+python3 main.py my_profile.json
 ```
-Each cycle pulls, grows the registry, and (with Postgres) marks any vanished job
-dead. Pair `--once` with cron, or run the loop under a process manager.
+What happens:
+- Pulls ~40k roles from 401+ companies (parallel, under a minute).
+- Free heuristic scores ALL of them ($0).
+- Only the top `TOP_N` (default 100) go to the LLM — the only paid step.
+- The **cache** means re-runs only pay for genuinely NEW jobs.
+
+Cost: first run ~$1. Later runs usually a few cents (only new jobs are ranked).
+
+Knobs:
+- `TOP_N=0 python3 main.py my_profile.json`   — fully free, no LLM at all
+- `TOP_N=200 python3 main.py my_profile.json`  — rank more deeply (costs more)
+
+Outputs: `ranked_jobs.csv` (open in Numbers/Excel) and `ranked_jobs.json`.
+
+## 3. View the feed
+```bash
+python3 make_ui.py        # reads ranked_jobs.json -> viewer.html
+open viewer.html
+```
+Standalone HTML — no server, no npm. Filter by Strong / Possible / Skip. New
+postings show a **NEW** badge. Strong matches include a copy-ready outreach email
+and either the recruiter's email (if Apollo returned one) or a one-click
+"Find recruiter on LinkedIn" link.
+
+Re-run `make_ui.py` only after a fresh `main.py` run. To just look again at the
+current feed, `open viewer.html` is enough.
+
+## 4. Scan one role you found yourself
+```bash
+python3 scan.py my_profile.json "https://link-to-a-job"     # or paste the JD text
+```
+Runs the full rank + draft on a single role from anywhere (LinkedIn, Handshake…).
+
+## Contacts (Apollo) — honest note
+Finding a recruiter's real email needs an Apollo key AND a paid Apollo plan;
+the free plan blocks the people-search API (you'll see a 403, handled gracefully).
+Without it, the LinkedIn fallback link does the same job for free. The draft email
+always generates regardless — it only needs your Anthropic key.
+
+## Optional pieces
+- **API server:** `uvicorn server:app --port 8000` (or `python3 -m uvicorn ...` if
+  uvicorn isn't on PATH) — serves the feed + a `/api/scan` endpoint.
+- **Scheduled refresh:** `python3 worker.py --once` (cron) or `--interval 60` (loop).
+- **Postgres persistence + dead-listing detection:** set `DATABASE_URL`, then
+  `python3 -c "import db; c=db.connect(); db.init_db(c)"`. (Code present; not part
+  of the default local flow.)
 
 ## Data flow
 ```
-main.py ──► ranked_jobs.json ─┐
-                              ├──► server.py ──► /api/jobs ──► ui/App.jsx
-Postgres (db.py) ─────────────┘
+onboard.py -> my_profile.json
+                    |
+main.py:  sources -> registry -> prefilter -> score (free) -> rank (LLM, cached) -> enrich
+                    |
+            ranked_jobs.json / .csv  +  ranked_cache.json
+                    |
+make_ui.py -> viewer.html        (or server.py -> /api/jobs)
 ```
