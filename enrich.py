@@ -128,6 +128,7 @@ Lead with the candidate's single strongest, most relevant project. End with a so
 ask (open to a quick chat / who's the right person to talk to).>
 
 Use the literal token {{{{NAME}}}} for the greeting — do NOT invent a name.
+Do NOT use em dashes or en dashes (— or –) anywhere. Use periods, commas, or "to" instead. This is a hard rule.
 
 CANDIDATE PROFILE:
 {profile_json}
@@ -158,4 +159,8 @@ def draft_email(client, profile_json, job, contact=None):
         first_name = contact["name"].split()[0]
         body = body.replace("{{NAME}}", first_name)
         subject = subject.replace("{{NAME}}", first_name)
-    return {"subject": subject, "body": body}
+
+    # safety net: never let em/en dashes through (they read as AI-written)
+    def _nodash(s):
+        return s.replace(" — ", ", ").replace("—", ", ").replace(" – ", ", ").replace("–", ", ")
+    return {"subject": _nodash(subject), "body": _nodash(body)}

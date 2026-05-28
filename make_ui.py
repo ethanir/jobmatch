@@ -190,15 +190,26 @@ function App(){
           <div>
             <div style={{fontFamily:FU,fontSize:13,fontWeight:600,color:"#6f6a5d",textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>{job.company}</div>
             <h1 style={{fontFamily:FD,fontSize:27,fontWeight:600,margin:0,lineHeight:1.12,letterSpacing:"-.02em"}}>{job.title}</h1>
-            <div style={{fontFamily:FU,fontSize:13,color:"#8a8578",marginTop:10,display:"flex",gap:9,flexWrap:"wrap"}}><span>{job.location||"—"}</span><span>·</span><span style={{textTransform:"capitalize"}}>{job.source}</span></div>
+            <div style={{fontFamily:FU,fontSize:13,color:"#8a8578",marginTop:10,display:"flex",gap:9,flexWrap:"wrap"}}><span>{job.location||"Location N/A"}</span><span>·</span><span style={{textTransform:"capitalize"}}>{job.source}</span></div>
           </div>
           <Ring tier={job.tier} score={job.score}/>
         </div>
         <div style={{padding:"22px 28px"}}>
-          {job.reasons.length>0 && <><Label>Why this {job.tier==="skip"?"isn't":"is"} a fit</Label>
-          <ul style={{margin:"0 0 22px",padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:9}}>
-            {job.reasons.map((r,i)=><li key={i} style={{display:"flex",gap:10,fontSize:15.5,lineHeight:1.5,color:"#33312a"}}><span style={{color:(TIERS[job.tier]||TIERS.possible).dot,marginTop:2}}>{job.tier==="skip"?"✕":"→"}</span><span>{r}</span></li>)}
-          </ul></>}
+          {job.reasons.length>0 && (()=>{
+            const neg=/\b(no |not |lack|missing|unmet|gap|concern|relocat|onsite; candidate|may need|unclear|minor)\b/i;
+            const pros=job.reasons.filter(r=>!neg.test(r));
+            const cons=job.reasons.filter(r=>neg.test(r));
+            return <>
+              {pros.length>0 && <><Label>Why you fit</Label>
+                <ul style={{margin:"0 0 20px",padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>
+                  {pros.map((r,i)=><li key={i} style={{display:"flex",gap:9,fontFamily:FU,fontSize:14,lineHeight:1.45,color:"#33312a"}}><span style={{color:"#176844",marginTop:1,flexShrink:0}}>✓</span><span>{r}</span></li>)}
+                </ul></>}
+              {cons.length>0 && <><Label>Worth knowing</Label>
+                <ul style={{margin:"0 0 22px",padding:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>
+                  {cons.map((r,i)=><li key={i} style={{display:"flex",gap:9,fontFamily:FU,fontSize:14,lineHeight:1.45,color:"#8a8578"}}><span style={{color:"#a98a3a",marginTop:1,flexShrink:0}}>!</span><span>{r}</span></li>)}
+                </ul></>}
+            </>;
+          })()}
           <div style={{display:"flex",gap:26,marginBottom:22,flexWrap:"wrap"}}>
             {job.matched.length>0 && <div style={{flex:1,minWidth:160}}><Label>You match</Label><Chips items={job.matched} kind="match"/></div>}
             {job.missing.length>0 && <div style={{flex:1,minWidth:160}}><Label>Gaps</Label><Chips items={job.missing} kind="gap"/></div>}
