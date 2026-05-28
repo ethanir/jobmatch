@@ -45,7 +45,7 @@ def shape(jobs):
     return out
 
 
-HTML = """<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JobMatch — your ranked feed</title>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -92,33 +92,49 @@ function CopyBtn({text, label}){
 }
 
 function Outreach({job}){
-  const statusColor={valid:"#176844",verified:"#176844",risky:"#8a5d10",invalid:"#a13a2c"};
+  const [name,setName]=useState("");
+  const who = name.trim() ? name.trim().split(" ")[0] : "there";
+  const d = job.draft;
+  const hasDraft = d && (typeof d==="object" ? (d.body||d.subject) : d);
+  const subjectTpl = (typeof d==="object" ? (d.subject||"") : "");
+  const bodyTpl = (typeof d==="object" ? (d.body||"") : (d||""));
+  const subject = subjectTpl.replace(/\{\{NAME\}\}/g, who);
+  const body = bodyTpl.replace(/\{\{NAME\}\}/g, who);
+  const full = (subject?("Subject: "+subject+"\n\n"):"")+body;
+
   return (<div style={{marginTop:6,marginBottom:4}}>
-    <Label>Who to reach</Label>
-    {job.contacts.length>0 ? (
-      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+    <Label>Step 1 — find the recruiter</Label>
+    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+      {job.linkedin_search && <a className="btn" href={job.linkedin_search} target="_blank" rel="noreferrer" style={{textDecoration:"none",fontFamily:FU,fontSize:13,fontWeight:600,padding:"9px 14px",borderRadius:9,border:"1px solid #cfcabc",color:"#1a1a17"}}>Find recruiter on LinkedIn →</a>}
+      <input value={name} onChange={e=>setName(e.target.value)} placeholder="paste recruiter's name"
+        style={{flex:1,minWidth:160,fontFamily:FU,fontSize:13.5,padding:"9px 12px",borderRadius:9,border:"1px solid #cfcabc",background:"#fffdf8",color:"#1a1a17",outline:"none"}}/>
+    </div>
+    <p style={{fontFamily:FU,fontSize:12,color:"#9a9486",margin:"0 0 16px",lineHeight:1.5}}>Open LinkedIn, grab the recruiter's name, paste it above — the email below updates instantly.</p>
+
+    {job.contacts.length>0 && (
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
         {job.contacts.map((c,i)=>(
           <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 14px",border:"1px solid #ece8dd",borderRadius:10,background:"#fffdf8"}}>
-            <div style={{minWidth:0}}>
-              <div style={{fontFamily:FU,fontSize:14,fontWeight:600,color:"#2a2823"}}>{c.name||"Contact"}</div>
-              <div style={{fontFamily:FU,fontSize:12.5,color:"#8a8578",overflow:"hidden",textOverflow:"ellipsis"}}>{c.title}{c.email?" · "+c.email:""}</div>
-            </div>
+            <div style={{minWidth:0}}><div style={{fontFamily:FU,fontSize:14,fontWeight:600,color:"#2a2823"}}>{c.name||"Contact"}</div><div style={{fontFamily:FU,fontSize:12.5,color:"#8a8578"}}>{c.title}{c.email?" · "+c.email:""}</div></div>
             {c.email && <CopyBtn text={c.email} label="Copy email"/>}
           </div>
         ))}
       </div>
-    ) : (
-      <div style={{marginBottom:14}}>
-        <p style={{fontFamily:FU,fontSize:13.5,color:"#8a8578",margin:"0 0 10px",lineHeight:1.5}}>No recruiter email on file (add an Apollo key to auto-find them). Meanwhile, find the recruiter in one click:</p>
-        {job.linkedin_search && <a className="btn" href={job.linkedin_search} target="_blank" rel="noreferrer" style={{display:"inline-block",textDecoration:"none",fontFamily:FU,fontSize:13,fontWeight:600,padding:"9px 14px",borderRadius:9,border:"1px solid #cfcabc",color:"#1a1a17"}}>Find recruiter on LinkedIn →</a>}
-      </div>
     )}
-    {job.draft && <>
-      <Label>Your outreach email — ready to send</Label>
+
+    {hasDraft && <>
+      <Label>Step 2 — your email, ready to send</Label>
+      {subject && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <div style={{flex:1,fontFamily:FU,fontSize:13.5,padding:"10px 14px",border:"1px solid #ece8dd",borderRadius:9,background:"#fffdf8",color:"#2a2823"}}><span style={{color:"#a39d8e",fontWeight:600}}>Subject: </span>{subject}</div>
+        <CopyBtn text={subject} label="Copy"/>
+      </div>}
       <div style={{border:"1px solid #ece8dd",borderRadius:12,background:"#fbfaf4",padding:"16px 18px",marginBottom:10}}>
-        <pre style={{margin:0,fontFamily:FB,fontSize:14.5,lineHeight:1.55,color:"#33312a",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{job.draft}</pre>
+        <pre style={{margin:0,fontFamily:FB,fontSize:14.5,lineHeight:1.55,color:"#33312a",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{body}</pre>
       </div>
-      <CopyBtn text={job.draft} label="Copy email draft"/>
+      <div style={{display:"flex",gap:8}}>
+        <CopyBtn text={body} label="Copy email body"/>
+        <CopyBtn text={full} label="Copy subject + body"/>
+      </div>
     </>}
   </div>);
 }
