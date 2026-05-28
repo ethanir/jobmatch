@@ -4,7 +4,7 @@
 
 ### Stop spraying applications. Find the roles that actually fit — and the human to email.
 
-![status](https://img.shields.io/badge/status-working%20prototype-brightgreen) ![field](https://img.shields.io/badge/field-Software%20Engineering-blue) ![python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white) ![fastapi](https://img.shields.io/badge/FastAPI-optional%20API-009688?logo=fastapi&logoColor=white) ![postgres](https://img.shields.io/badge/PostgreSQL-optional-4169E1?logo=postgresql&logoColor=white) ![license](https://img.shields.io/badge/license-MIT-black)
+![status](https://img.shields.io/badge/status-complete%20%E2%80%94%20v1-brightgreen) ![field](https://img.shields.io/badge/field-Software%20Engineering-blue) ![python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white) ![fastapi](https://img.shields.io/badge/FastAPI-optional%20API-009688?logo=fastapi&logoColor=white) ![postgres](https://img.shields.io/badge/PostgreSQL-optional-4169E1?logo=postgresql&logoColor=white) ![license](https://img.shields.io/badge/license-MIT-black)
 
 ![sources](https://img.shields.io/badge/sources-6%20ATS%20%2B%20curated-success) ![registry](https://img.shields.io/badge/company%20registry-self--growing-orange) ![ranking](https://img.shields.io/badge/ranking-funnel%20%2B%20LLM-ff5c5c) ![cache](https://img.shields.io/badge/re--runs-near--free-9b59b6) ![auto--apply](https://img.shields.io/badge/auto--apply-never-lightgrey)
 
@@ -67,9 +67,9 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 | 💸 | **Cost-correct funnel** | A free heuristic scores *every* role; only the top N (default 100) hit the LLM. A full run costs **~$1, not ~$70.** Set `TOP_N=0` for a fully free run. |
 | 🧠 | **Honest fit ranking** | The LLM scores your top matches with reasons and gaps. It will tell you to **skip** a bad fit. |
 | ♻️ | **Seen-job cache** | Remembers what it already ranked, so **re-runs only pay for genuinely new jobs.** New postings are flagged **NEW** and float to the top. |
-| ✍️ | **AI outreach drafts** | Every strong match gets a short, personalized email led by your most relevant project — generated from your full profile, copy-ready. You review and send from your own inbox. |
-| 📇 | **Contact lookup** | With an Apollo key, finds the recruiter for strong matches. Without one, a one-click **"Find recruiter on LinkedIn"** link is always there. |
-| 🖥️ | **Standalone viewer** | `make_ui.py` bakes the feed into a single `viewer.html` — no server, no build step. Filterable by Strong / Possible / Skip. |
+| ✍️ | **AI outreach drafts** | Every strong match gets a short, personalized email with its own **subject line**, led by your most relevant project, generated from your full profile. Subject and body each have their own one-click copy button. No em dashes (so it never reads as AI-written). You review and send from your own inbox. |
+| 📇 | **Recruiter workflow** | One-click **"Find recruiter on LinkedIn"** for every strong match. Paste the recruiter's name back in and the email greeting + subject personalize instantly. (Apollo contact lookup is wired in but requires Apollo's paid API tier — the free LinkedIn flow is the default and costs nothing.) |
+| 🖥️ | **Standalone viewer** | `make_ui.py` bakes the feed into a single `viewer.html` — no server, no build step. Filterable by Strong / Possible / Skip. Each role shows **Why you fit** (the positives) and **Worth knowing** (the honest concerns) split cleanly, plus matched skills and gaps. |
 | 🔎 | **Scan any role** | Paste a JD or URL from LinkedIn / Handshake → instant fit-rank + draft for one role you found yourself. |
 | 🛑 | **No auto-apply, no auto-send** | Deliberately. It protects your accounts, your sender reputation, and the quality of every application. |
 
@@ -132,6 +132,7 @@ jobmatch/
 ├── prompts.py              # profile schema + all LLM prompts (the heart)
 ├── profile.example.json    # sample candidate profile
 ├── RUNNING.md              # full how-to for every piece
+├── ROADMAP.md              # what's left: coverage plan, name shortlist, launch steps
 └── BUILD_SPEC.md           # full spec — anyone can rebuild the product from it
 ```
 
@@ -139,19 +140,31 @@ jobmatch/
 
 ## 🗺️ Roadmap
 
-- [x] Multi-ATS sourcing across 6 platforms (parallel)
+**v1 — the engine (done).** Everything below works today, runs locally, and is the version that found and applied to real roles.
+
+- [x] Multi-ATS sourcing across 6 platforms (parallel, ~40k roles in under a minute)
 - [x] Self-growing company registry
-- [x] Free prefilter + cost-correct LLM funnel
-- [x] Seen-job cache — re-runs only pay for new jobs
-- [x] Personalized AI outreach drafts per strong match
-- [x] Standalone single-file viewer (filterable feed, copy-ready email)
+- [x] Free prefilter + cost-correct LLM funnel (~$1 first run, near-free after)
+- [x] Seen-job cache — re-runs only pay for genuinely new jobs
+- [x] Honest fit ranking — Strong / Possible / Skip with reasons and gaps
+- [x] Personalized AI outreach drafts per strong match (subject + body, em-dash-free)
+- [x] Recruiter workflow — LinkedIn discovery + live name personalization
+- [x] Standalone single-file viewer (Why-you-fit / Worth-knowing split, copy-ready email)
 - [x] Scan-any-role (paste a JD/URL)
-- [x] Contact lookup (Apollo) + LinkedIn fallback
-- [~] Postgres persistence + scheduled freshness workers *(code present in db.py/worker.py; not wired into the default flow)*
-- [ ] Capture-on-view browser extension (LinkedIn/Handshake, ban-safe)
-- [ ] Tailored resume per role + follow-up reminders
-- [ ] Hosted multi-user version (accounts, billing) — currently runs locally per user
-- [ ] Expand beyond software engineering (the rubric is already field-adaptable)
+
+**v2 — the only thing left: coverage.** The ranking engine is strong; the one real ceiling is *how many jobs enter the funnel*. v1 scans ~400 companies on 6 ATS types. These three steps, in order of impact, take it from "a great slice" toward "scans everywhere," and are the entire remaining build:
+
+1. **Expand the company registry** *(biggest win, least work)* — seed it from large public sources (YC company list, public Greenhouse / Lever / Ashby board directories, levels.fyi company list) to go from ~400 to several thousand companies. More companies in = more real roles ranked.
+2. **Add a Workday connector** — the single biggest missing ATS. A large share of mid-to-large employers post only on Workday, so it's currently invisible to the tool. Harder than the JSON-clean ATS APIs, but the largest coverage gap.
+3. **Pull from a job-aggregator feed** — invert the problem from "list every company" to "query one giant index," then dedupe against the ATS pulls. This is the path to true "everything, everywhere" coverage.
+
+**v3 — launch.** Once coverage is wide, ship it as a real product:
+
+4. **Pick a final name** (`JobMatch` is taken — see `ROADMAP.md` for the shortlist).
+5. **Buy the domain.**
+6. **Build the landing page + hosted version** (accounts, the viewer served from the web instead of a local file).
+
+> See **`ROADMAP.md`** for the full plan, name shortlist, and honest notes on scope, cost, and what's worth doing.
 
 ---
 
