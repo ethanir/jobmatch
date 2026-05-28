@@ -52,6 +52,19 @@
   .prog-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
   .prog-stage{font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2)}
   .prog-detail{font-family:var(--fm);font-size:11.5px;color:var(--mut)}
+  /* scan depth */
+  .depth{overflow:hidden;max-height:0;transition:max-height .35s ease}
+  .depth.open{max-height:160px}
+  .depth-in{padding:0 0 16px}
+  .depth-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px}
+  .depth-label{display:inline-flex;align-items:center;gap:7px;font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2)}
+  .depth-est{font-family:var(--fm);font-size:12.5px;font-weight:700;color:var(--green);white-space:nowrap}
+  .depth-row{display:flex;align-items:center;gap:14px}
+  .depth-val{font-family:var(--fu);font-size:14px;font-weight:700;color:var(--ink);min-width:46px;text-align:right}
+  .depth-slider{-webkit-appearance:none;appearance:none;flex:1;height:6px;border-radius:99px;background:#222a34;outline:none;cursor:pointer}
+  .depth-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer;box-shadow:0 0 0 4px rgba(79,227,155,.16)}
+  .depth-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer}
+  .depth-note{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:9px;line-height:1.5}
   /* layout */
   main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
   @media(max-width:880px){main{grid-template-columns:1fr}}
@@ -152,6 +165,20 @@
       </button>
     </div>
   </div>
+  <div class="wrap"><div class="depth" id="depthPanel"><div class="depth-in">
+    <div class="depth-top">
+      <span class="depth-label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        AI scan depth
+      </span>
+      <span class="depth-est" id="depthEst"></span>
+    </div>
+    <div class="depth-row">
+      <input class="depth-slider" type="range" id="depthSlider" min="0" max="1000" step="20" value="800" oninput="updateDepth()"/>
+      <span class="depth-val" id="depthVal">800</span>
+    </div>
+    <div class="depth-note">The free scorer rates every role. This sets how many of the top roles the AI reads in full. Deeper costs more and finds a few more, with a steep drop-off.</div>
+  </div></div></div>
   <div class="wrap"><div class="prog" id="prog"><div class="prog-in">
     <div class="prog-row"><span class="prog-stage" id="progStage">Starting…</span><span class="prog-detail" id="progDetail"></span></div>
     <div class="bar"><i id="progFill"></i></div>
@@ -215,10 +242,26 @@ function renderLock(){
   if(UNLOCKED){
     lb.classList.add("unlocked"); ll.textContent="Unlocked";
     rb.classList.remove("locked");
+    document.getElementById("depthPanel").classList.add("open");
   }else{
     lb.classList.remove("unlocked"); ll.textContent="Unlock";
     rb.classList.add("locked");
+    document.getElementById("depthPanel").classList.remove("open");
   }
+}
+function depthMatches(n){ return 3.6*(1-Math.exp(-n/118)); }
+function updateDepth(){
+  const sl=document.getElementById("depthSlider"); if(!sl) return;
+  const n=parseInt(sl.value,10);
+  document.getElementById("depthVal").textContent=n;
+  const pct=(n/1000)*100;
+  sl.style.background="linear-gradient(90deg,var(--green) "+pct+"%,#222a34 "+pct+"%)";
+  const est=document.getElementById("depthEst");
+  if(n===0){ est.textContent="Free · heuristic only"; return; }
+  const cost="$"+(n*0.01).toFixed(2);
+  const sec=Math.round(n*0.5);
+  const t=sec<90?("~"+sec+"s"):("~"+Math.round(sec/60)+" min");
+  est.textContent="~"+cost+" · "+t+" · ~"+Math.round(depthMatches(n))+" strong";
 }
 function openUnlock(){
   if(UNLOCKED) return;
@@ -346,9 +389,11 @@ function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt
 /* ---------- live refresh (only reachable when unlocked) ---------- */
 async function startRefresh(){
   const btn=document.getElementById("refreshBtn");
+  const sl=document.getElementById("depthSlider");
+  const topN = sl ? parseInt(sl.value,10) : null;
   let res;
   try{
-    res = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:"{}"});
+    res = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({top_n:topN})});
   }catch(e){ toast("Can't reach the server"); return; }
   if(res.status===401){ UNLOCKED=false; renderLock(); openUnlock(); return; }
   const r = await res.json().catch(()=>null);
@@ -378,6 +423,7 @@ async function pollStatus(){
   }
 }
 
+updateDepth();
 checkUnlock();
 loadJobs();
 </script>

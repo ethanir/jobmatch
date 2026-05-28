@@ -25,6 +25,7 @@ import json
 import os
 import threading
 import time
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +57,7 @@ _refresh = {
 _refresh_lock = threading.Lock()
 
 
-def _run_refresh(profile_path):
+def _run_refresh(profile_path, top_n=None):
     def progress(stage, pct, detail):
         with _refresh_lock:
             _refresh.update(stage=stage, pct=pct, detail=detail)
@@ -65,7 +66,7 @@ def _run_refresh(profile_path):
             _refresh.update(running=True, stage="Starting", pct=0, detail="",
                             started_at=time.time(), finished_at=None,
                             result=None, error=None)
-        summary = pipeline.run(profile_path, progress=progress)
+        summary = pipeline.run(profile_path, progress=progress, top_n=top_n)
         with _refresh_lock:
             _refresh.update(running=False, stage="Done", pct=100,
                             finished_at=time.time(), result=summary)
@@ -243,6 +244,12 @@ def scan_endpoint(request: Request, inp: ScanInput):
 # ---------------------------------------------------------------- refresh
 class RefreshInput(BaseModel):
     profile_path: str = os.environ.get("PROFILE_PATH", "my_profile.json")
+    top_n: Optional[int] = None
+
+
+# Hard ceiling on how many jobs one refresh may send to the LLM, regardless of
+# what the client posts. The slider tops out at 1000; this is the backstop.
+MAX_TOP_N = 2000
 
 
 @app.post("/api/refresh")
@@ -260,9 +267,12 @@ def start_refresh(request: Request, inp: RefreshInput = RefreshInput()):
             if os.path.exists(alt):
                 path = alt
                 break
-    t = threading.Thread(target=_run_refresh, args=(path,), daemon=True)
+    top_n = inp.top_n
+    if top_n is not None:
+        top_n = max(0, min(int(top_n), MAX_TOP_N))
+    t = threading.Thread(target=_run_refresh, args=(path, top_n), daemon=True)
     t.start()
-    return {"started": True}
+    return {"started": True, "top_n": top_n}
 
 
 @app.get("/api/refresh/status")
