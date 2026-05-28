@@ -1,10 +1,17 @@
 """
 FastAPI server - serves the ranked feed to the UI.
 
-Endpoints:
-    GET  /api/health                 -> {"status": "ok", "source": "db"|"file"}
-    GET  /api/jobs?user_id=&tier=     -> ranked job list (shape the UI expects)
-    GET  /api/jobs/{job_id}           -> one job with contacts + draft
+Access model (simple and wallet-safe):
+    - Viewing the feed is OPEN to everyone (landing, /app, /api/jobs).
+    - Anything that spends the API budget or changes data is OWNER-ONLY, gated
+      behind a single access code: refresh, scan, onboard, save-profile.
+    - Unlock once with the code and a cookie keeps you unlocked. The feed itself
+      never asks for a code.
+
+Set ACCESS_CODE in the host's env (e.g. ACCESS_CODE=ethan) to turn the gate on.
+If ACCESS_CODE is unset, the gate is OFF (handy for local dev).
+Optionally set COOKIE_SECRET to a fixed random string so the unlock survives
+redeploys (otherwise it resets each restart and you re-enter the code once).
 
 Data source resolution:
     1. If DATABASE_URL is set and reachable -> Postgres (db.py).
@@ -13,8 +20,6 @@ Data source resolution:
 Run:
     pip install -r requirements.txt
     uvicorn server:app --reload --port 8000
-
-CORS is open for local dev so the Vite/React UI on another port can call it.
 """
 import json
 import os
@@ -75,15 +80,15 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------- access gate
-# A single shared access code protects the app + all action endpoints, so only
-# people you give the code to can use the AI (and spend your API budget). The
-# landing page stays public. Set ACCESS_CODE in the host's env; if it's unset,
-# the gate is OFF (handy for local dev).
+# A single shared access code protects every paid / data-changing action, so
+# only people with the code can spend the API budget. The feed stays public.
+# Set ACCESS_CODE in the host's env; if it's unset, the gate is OFF (local dev).
 import hashlib as _hashlib
 import secrets as _secrets
 
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
-# A per-process secret so the unlock cookie can't be guessed/forged.
+# A per-process secret so the unlock cookie can't be guessed/forged. Set a fixed
+# COOKIE_SECRET in env to keep people unlocked across redeploys.
 _COOKIE_SECRET = os.environ.get("COOKIE_SECRET", _secrets.token_hex(16))
 
 
@@ -93,33 +98,17 @@ def _valid_token():
 
 
 def _is_unlocked(request):
-    """Access gate is DISABLED: the site is free and open to everyone."""
-    return True
+    """True if this request carries a valid unlock cookie. If no ACCESS_CODE is
+    configured the gate is disabled (everything is treated as unlocked)."""
+    if not ACCESS_CODE:
+        return True
+    token = request.cookies.get("jr_access")
+    return bool(token) and _secrets.compare_digest(token, _valid_token())
 
 
 def _require_unlock(request):
     if not _is_unlocked(request):
         raise HTTPException(status_code=401, detail="locked")
-
-
-# ---------------------------------------------------------------- rate limit
-# Simple in-memory limiter so even an unlocked user can't spam the paid endpoint
-# into a huge bill. Per-client (by IP), a small number of refreshes per window.
-_RATE = {}
-_RATE_MAX = int(os.environ.get("REFRESH_MAX_PER_HOUR", "5"))
-_RATE_WINDOW = 3600
-
-
-def _rate_ok(request):
-    ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    hits = [t for t in _RATE.get(ip, []) if now - t < _RATE_WINDOW]
-    if len(hits) >= _RATE_MAX:
-        _RATE[ip] = hits
-        return False
-    hits.append(now)
-    _RATE[ip] = hits
-    return True
 
 
 RANKED_FILE = os.environ.get("RANKED_FILE", "ranked_jobs.json")
@@ -236,7 +225,8 @@ def _load_profile(user_id):
 
 @app.post("/api/scan")
 def scan_endpoint(request: Request, inp: ScanInput):
-    """Paste-a-JD-or-URL endpoint. Runs fit-rank + contacts + draft on one role."""
+    """Paste-a-JD-or-URL endpoint. Runs fit-rank + contacts + draft on one role.
+    Owner-only (spends the API budget)."""
     _require_unlock(request)
     if not inp.text.strip():
         raise HTTPException(status_code=400, detail="text is empty")
@@ -257,12 +247,10 @@ class RefreshInput(BaseModel):
 
 @app.post("/api/refresh")
 def start_refresh(request: Request, inp: RefreshInput = RefreshInput()):
-    """Kick off a background pipeline run. Old jobs are preserved; new postings
-    are appended and flagged. Returns immediately; poll /api/refresh/status."""
+    """Kick off a background pipeline run. Owner-only: this is the paid step, so
+    it requires the unlock cookie. Old jobs are preserved; new postings are
+    appended and flagged. Returns immediately; poll /api/refresh/status."""
     _require_unlock(request)
-    if not _rate_ok(request):
-        raise HTTPException(status_code=429,
-                            detail="Too many refreshes. Try again later.")
     with _refresh_lock:
         if _refresh["running"]:
             return {"started": False, "reason": "a refresh is already running"}
@@ -290,7 +278,6 @@ def index():
     """Serve the marketing landing page."""
     if os.path.exists("landing.html"):
         return FileResponse("landing.html")
-    # fall back to the app if the landing page isn't present
     for path in ("app.html", "viewer.html"):
         if os.path.exists(path):
             return FileResponse(path)
@@ -299,10 +286,8 @@ def index():
 
 @app.get("/app")
 def app_ui(request: Request):
-    """Serve the hosted single-page app (the ranked feed). Gated by access code."""
-    if not _is_unlocked(request):
-        return FileResponse("unlock.html") if os.path.exists("unlock.html") else \
-            RedirectResponse("/unlock")
+    """Serve the hosted single-page app (the ranked feed). OPEN to everyone:
+    viewing is free, only the Refresh action inside it is gated."""
     for path in ("app.html", "viewer.html"):
         if os.path.exists(path):
             return FileResponse(path)
@@ -311,10 +296,8 @@ def app_ui(request: Request):
 
 @app.get("/start")
 def start_ui(request: Request):
-    """Serve the onboarding page (build your profile). Gated by access code."""
-    if not _is_unlocked(request):
-        return FileResponse("unlock.html") if os.path.exists("unlock.html") else \
-            RedirectResponse("/unlock")
+    """Serve the onboarding page (build your profile). OPEN to view; the actions
+    inside it (onboard / save-profile) are gated server-side."""
     if os.path.exists("start.html"):
         return FileResponse("start.html")
     raise HTTPException(status_code=404, detail="no start.html found")
@@ -322,10 +305,19 @@ def start_ui(request: Request):
 
 @app.get("/unlock")
 def unlock_page():
-    """The access-code entry page."""
+    """The access-code entry page (kept for direct access; the app has its own
+    inline unlock now)."""
     if os.path.exists("unlock.html"):
         return FileResponse("unlock.html")
     raise HTTPException(status_code=404, detail="no unlock.html found")
+
+
+@app.get("/api/unlock/status")
+def unlock_status(request: Request):
+    """Lets the UI know whether this browser is already unlocked, so it can show
+    the unlocked state on load. The unlock cookie is httponly, so the client
+    cannot read it directly and asks here instead."""
+    return {"unlocked": _is_unlocked(request), "gate_on": bool(ACCESS_CODE)}
 
 
 @app.post("/api/unlock")
@@ -352,7 +344,8 @@ async def do_unlock(request: Request):
 
 @app.post("/api/profile")
 async def save_profile(request: Request):
-    """Save a profile JSON (from the bring-your-own-AI flow) to disk."""
+    """Save a profile JSON (from the bring-your-own-AI flow) to disk. Owner-only
+    so a visitor can't overwrite the shared profile."""
     _require_unlock(request)
     try:
         data = await request.json()
@@ -371,7 +364,8 @@ async def save_profile(request: Request):
 
 @app.post("/api/onboard")
 async def onboard_resume(request: Request, file: UploadFile = File(...)):
-    """Accept a resume upload, parse it into a profile, save it."""
+    """Accept a resume upload, parse it into a profile, save it. Owner-only
+    (parsing spends the API budget and overwrites the shared profile)."""
     _require_unlock(request)
     import tempfile
     suffix = os.path.splitext(file.filename or "")[1].lower() or ".txt"
@@ -391,7 +385,6 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
         os.unlink(tmp_path)
         return {"ok": True, "saved": path, "name": profile.get("name")}
     except Exception as e:
-        # Translate internal/developer errors into something a user can act on.
         msg = str(e)
         if "pypdf" in msg:
             friendly = ("Couldn't read that PDF on the server. Try uploading a .docx or "

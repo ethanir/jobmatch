@@ -23,13 +23,25 @@
   .head-in{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 0}
   .brand{font-family:var(--fd);font-size:30px;font-weight:600;letter-spacing:-.02em}
   .sub{font-family:var(--fu);font-size:13.5px;color:var(--mut);margin-left:14px}
-  .right{display:flex;align-items:center;gap:16px}
+  .right{display:flex;align-items:center;gap:12px}
   .meta{font-family:var(--fu);font-size:12.5px;color:var(--mut)}
-  .refresh{display:inline-flex;align-items:center;gap:9px;font-family:var(--fu);font-size:14px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:10px;padding:11px 18px;cursor:pointer;transition:opacity .15s}
+  /* unlock control */
+  .lockbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:10px 15px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .lockbtn:hover{border-color:var(--green);color:var(--green)}
+  .lockbtn .ic-check{display:none}
+  .lockbtn.unlocked{color:#08120c;background:var(--green);border-color:var(--green);cursor:default;box-shadow:0 0 0 3px rgba(79,227,155,.16)}
+  .lockbtn.unlocked:hover{color:#08120c;border-color:var(--green)}
+  .lockbtn.unlocked .ic-lock{display:none}
+  .lockbtn.unlocked .ic-check{display:inline}
+  /* refresh */
+  .refresh{display:inline-flex;align-items:center;gap:9px;font-family:var(--fu);font-size:14px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:10px;padding:11px 18px;cursor:pointer;transition:opacity .15s,background .15s,color .15s}
   .refresh:hover{opacity:.9}
   .refresh:disabled{opacity:.55;cursor:default}
   .refresh svg{transition:transform .6s ease}
   .refresh.spin svg{animation:spin 1s linear infinite}
+  /* locked refresh reads as inactive but is still clickable (opens unlock) */
+  .refresh.locked{background:#222a34;color:var(--mut);cursor:pointer}
+  .refresh.locked:hover{opacity:1;color:var(--ink2)}
   @keyframes spin{to{transform:rotate(360deg)}}
   /* progress */
   .prog{overflow:hidden;max-height:0;transition:max-height .35s ease}
@@ -94,6 +106,21 @@
   .empty{padding:60px 24px;text-align:center;color:var(--mut);font-family:var(--fu)}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:#1b212b;color:var(--ink);border:1px solid var(--line2);font-family:var(--fu);font-size:13.5px;padding:11px 18px;border-radius:10px;transition:.25s;pointer-events:none;z-index:50}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  /* unlock modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(8,10,14,.64);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal-bg.show{display:flex;animation:fade .2s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .modal{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:34px 30px 30px;text-align:center;animation:pop .22s cubic-bezier(.2,.7,.2,1)}
+  @keyframes pop{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .modal-lock{width:52px;height:52px;border-radius:15px;background:var(--greenbg);border:1px solid var(--greenln);display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
+  .modal h2{font-family:var(--fd);font-size:22px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+  .modal p{font-family:var(--fu);font-size:13.5px;color:var(--mut);line-height:1.5;margin:0 0 20px}
+  .modal input{width:100%;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px 14px;color:var(--ink);font-family:var(--fu);font-size:15px;font-weight:600;text-align:center;letter-spacing:.04em;outline:none;transition:border-color .15s}
+  .modal input:focus{border-color:var(--greenln)}
+  .modal-btn{width:100%;margin-top:12px;font-family:var(--fu);font-size:15px;font-weight:700;border:none;border-radius:12px;padding:13px;cursor:pointer;background:var(--green);color:#08120c;transition:opacity .15s}
+  .modal-btn:hover{opacity:.9}
+  .modal-msg{font-family:var(--fu);font-size:13px;font-weight:600;margin-top:14px;min-height:16px;color:#e3804f}
+  .modal-x{position:absolute;top:14px;right:18px;font-size:22px;color:var(--mut);background:none;border:none;cursor:pointer;line-height:1}
 </style>
 </head>
 <body>
@@ -105,7 +132,12 @@
     </div>
     <div class="right">
       <span class="meta" id="meta"></span>
-      <button class="refresh" id="refreshBtn" onclick="startRefresh()">
+      <button class="lockbtn" id="lockBtn" onclick="openUnlock()">
+        <svg class="ic-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <svg class="ic-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="lockLabel">Unlock</span>
+      </button>
+      <button class="refresh locked" id="refreshBtn" onclick="onRefreshClick()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
         <span id="refreshLabel">Refresh jobs</span>
       </button>
@@ -125,15 +157,80 @@
   <section id="detailWrap"></section>
 </main></div>
 
+<!-- unlock modal -->
+<div class="modal-bg" id="unlockBg" onclick="if(event.target===this)closeUnlock()">
+  <div class="modal" style="position:relative">
+    <button class="modal-x" onclick="closeUnlock()" aria-label="close">×</button>
+    <div class="modal-lock">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </div>
+    <h2>Unlock refreshing</h2>
+    <p>Anyone can browse the feed. Refreshing runs the AI, so it is owner-only. Enter the access code to enable it.</p>
+    <input id="unlockCode" type="password" placeholder="Access code" autocomplete="off"
+           onkeydown="if(event.key==='Enter')doUnlock()"/>
+    <button class="modal-btn" id="unlockSubmit" onclick="doUnlock()">Unlock →</button>
+    <div class="modal-msg" id="unlockMsg"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null;
+let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false;
 
-function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600);}
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
 
+/* ---------- unlock ---------- */
+async function checkUnlock(){
+  try{
+    const s = await fetch(API+"/api/unlock/status",{credentials:"same-origin"}).then(r=>r.json());
+    UNLOCKED = !!s.unlocked;
+  }catch(e){ UNLOCKED = false; }
+  renderLock();
+}
+function renderLock(){
+  const lb=document.getElementById("lockBtn");
+  const ll=document.getElementById("lockLabel");
+  const rb=document.getElementById("refreshBtn");
+  if(UNLOCKED){
+    lb.classList.add("unlocked"); ll.textContent="Unlocked";
+    rb.classList.remove("locked");
+  }else{
+    lb.classList.remove("unlocked"); ll.textContent="Unlock";
+    rb.classList.add("locked");
+  }
+}
+function openUnlock(){
+  if(UNLOCKED) return;
+  document.getElementById("unlockMsg").textContent="";
+  document.getElementById("unlockCode").value="";
+  document.getElementById("unlockBg").classList.add("show");
+  setTimeout(()=>document.getElementById("unlockCode").focus(),60);
+}
+function closeUnlock(){ document.getElementById("unlockBg").classList.remove("show"); }
+async function doUnlock(){
+  const code=document.getElementById("unlockCode").value.trim();
+  const msg=document.getElementById("unlockMsg");
+  if(!code){ msg.style.color="#e3804f"; msg.textContent="Enter the code."; return; }
+  msg.style.color="var(--mut)"; msg.textContent="Checking…";
+  try{
+    const r=await fetch(API+"/api/unlock",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({code})});
+    const d=await r.json().catch(()=>({}));
+    if(d.ok){
+      UNLOCKED=true; renderLock(); closeUnlock(); toast("Unlocked. Refresh is live ✓");
+    }else{
+      msg.style.color="#e3804f"; msg.textContent=d.error||"Incorrect code.";
+    }
+  }catch(e){ msg.style.color="#e3804f"; msg.textContent="Can't reach the server."; }
+}
+function onRefreshClick(){
+  if(!UNLOCKED){ openUnlock(); return; }
+  startRefresh();
+}
+
+/* ---------- feed ---------- */
 async function loadJobs(){
   try{
     const r = await fetch(API + "/api/jobs?tier=all");
@@ -228,12 +325,17 @@ function select(id){SELECTED=id;render();}
 function setFilter(f){FILTER=f;SELECTED=null;render();}
 function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
-/* ---------- live refresh ---------- */
+/* ---------- live refresh (only reachable when unlocked) ---------- */
 async function startRefresh(){
   const btn=document.getElementById("refreshBtn");
-  const r = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json()).catch(()=>null);
-  if(!r){toast("Can't reach the server");return;}
-  if(!r.started){toast(r.reason||"Already running");}
+  let res;
+  try{
+    res = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:"{}"});
+  }catch(e){ toast("Can't reach the server"); return; }
+  if(res.status===401){ UNLOCKED=false; renderLock(); openUnlock(); return; }
+  const r = await res.json().catch(()=>null);
+  if(!r){ toast("Can't reach the server"); return; }
+  if(!r.started){ toast(r.reason||"Already running"); }
   btn.classList.add("spin");btn.disabled=true;
   document.getElementById("refreshLabel").textContent="Searching…";
   document.getElementById("prog").classList.add("open");
@@ -258,6 +360,7 @@ async function pollStatus(){
   }
 }
 
+checkUnlock();
 loadJobs();
 </script>
 </body>
