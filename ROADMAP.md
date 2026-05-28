@@ -65,11 +65,17 @@ That's the whole remaining plan. Everything else is polish.
 
 In strict order of impact-per-effort:
 
-### 1. Expand the company registry — *biggest win, least work*
+### 1. Expand the company registry — *biggest win, least work* 🛠️ tooling built
 Go from ~400 to several thousand companies by seeding the registry from large public sources:
 - YC company directory
 - Public Greenhouse / Lever / Ashby board listings
 - levels.fyi company list
+
+**`seed.py` is built and does exactly this:** give it candidate companies (a built-in
+starter list, or a file of `ats token name` lines), and it validates each against its
+live ATS board, adding only the ones that actually return jobs. **$0 API cost**, parallel,
+fast. Run `python3 seed.py` to add the starter set, or `python3 seed.py companies.txt`
+to bulk-add your own. Remaining work here is just *feeding it bigger public lists*.
 
 **Why first:** every company added is more real roles entering the funnel, with zero new code paths — it reuses the existing connectors. This alone meaningfully widens the net.
 **Interview value:** "scans N thousand companies" is a far stronger line than "~400."
@@ -111,7 +117,7 @@ Invert the model: instead of enumerating every company, query one large pre-buil
 
 ## Definition of done
 
-- [ ] Registry expanded to several thousand companies (v2.1)
+- [~] Registry expanded to several thousand companies (v2.1) — `seed.py` built; feed it bigger lists
 - [ ] Workday connector live (v2.2)
 - [ ] Aggregator feed integrated + deduped (v2.3)
 - [ ] Final name chosen

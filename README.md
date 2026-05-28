@@ -64,6 +64,7 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 |---|---|---|
 | 🔎 | **Multi-source sourcing** | Pulls live roles from **6 ATS platforms** (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable) plus curated new-grad lists. Pulls run in parallel — ~40k roles in under a minute. |
 | 🌱 | **Self-growing registry** | Every job URL teaches it a new company token, so coverage **compounds automatically** — no manual company list to maintain. |
+| 📈 | **Registry seeding (`seed.py`)** | Widen coverage on demand: validates candidate companies against their live ATS boards and adds only the ones that really return jobs. **$0 API cost** (plain HTTP, no LLM), runs in parallel. This is the v2 "coverage" lever — more companies in the funnel, same ranking cost. |
 | 💸 | **Cost-correct funnel** | A free heuristic scores *every* role; only the top N (default 100) hit the LLM. A full run costs **~$1, not ~$70.** Set `TOP_N=0` for a fully free run. |
 | 🧠 | **Honest fit ranking** | The LLM scores your top matches with reasons and gaps. It will tell you to **skip** a bad fit. |
 | ♻️ | **Seen-job cache** | Remembers what it already ranked, so **re-runs only pay for genuinely new jobs.** New postings are flagged **NEW** and float to the top. |
@@ -111,7 +112,23 @@ uvicorn server:app --port 8000          # then open http://localhost:8000
 
 **Free run** (no LLM cost at all): `TOP_N=0 python3 main.py my_profile.json`
 **Rank more deeply** (costs more): `TOP_N=200 python3 main.py my_profile.json`
+**Widen coverage** (add more companies, $0 API): `python3 seed.py`
 **Keep it fresh on a schedule:** `python3 worker.py --interval 60`
+
+### Coverage, cost, and speed — how they relate
+Three independent things, and only one of them costs money:
+
+- **How many companies you pull from** (`seed.py` grows this). Pulling is plain HTTP and runs in parallel, so a bigger registry means **more jobs in the funnel at $0 extra API cost** and only a little more time (the pull is parallelized). This is the main quality lever.
+- **The free heuristic scorer** rates *every* pulled job for $0. It picks which jobs the LLM sees.
+- **How deep the LLM ranks** (`TOP_N`) is the **only** paid step, and its cost is fixed by `TOP_N` no matter how big the pool is:
+
+| `TOP_N` | LLM ranks | Fresh-run cost | Re-run cost (cache) |
+|---|---|---|---|
+| 100 (default) | top 100 | ~$1 | ~$0 |
+| 200 | top 200 | ~$2 | ~$0 |
+| 0 | none | $0 | $0 |
+
+So to "scan the best possible set of jobs": **seed more companies** (free) and keep `TOP_N` at 100–200. Wider net, smarter ranking, still ~$1–2 per fresh run and near-free on daily re-runs thanks to the cache.
 
 ---
 
@@ -123,6 +140,7 @@ jobmatch/
 ├── onboard.py              # resume (PDF/DOCX/TXT) -> structured profile via LLM
 ├── sources.py              # 6 ATS connectors + curated-list pull (parallel)
 ├── registry.py             # self-growing company->token registry
+├── seed.py                 # widen the registry: validate + add companies (v2 coverage, $0 API)
 ├── prefilter.py            # free rule-based cut before any LLM call
 ├── score.py                # free heuristic funnel scorer ($0) — picks what the LLM sees
 ├── rank.py                 # LLM fit-ranking engine (parallel)

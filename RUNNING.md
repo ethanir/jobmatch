@@ -89,6 +89,23 @@ the free plan blocks the people-search API (you'll see a 403, handled gracefully
 Without it, the LinkedIn fallback link does the same job for free. The draft email
 always generates regardless — it only needs your Anthropic key.
 
+## Widen coverage (more companies, $0 API)
+```bash
+python3 seed.py                 # validate + add the built-in starter list
+python3 seed.py companies.txt   # also add your own (one per line: "ats token name")
+python3 seed.py --dry-run       # preview what would be added, change nothing
+```
+`seed.py` checks each candidate against its live ATS board and adds only the ones
+that actually return jobs, so the registry never fills with dead tokens. It makes
+plain HTTP calls (no LLM), so it costs nothing in API and runs in parallel. After
+seeding, the next `main.py` run automatically pulls from every added company.
+File format (lines starting with `#` are ignored):
+```
+greenhouse  stripe     Stripe
+lever       netflix
+ashby       ramp        Ramp
+```
+
 ## Optional pieces
 - **Scheduled refresh:** `python3 worker.py --once` (cron) or `--interval 60` (loop).
 - **Postgres persistence + dead-listing detection:** set `DATABASE_URL`, then
