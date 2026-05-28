@@ -135,9 +135,12 @@ function Outreach({job}){
 
     {hasDraft && <>
       <Label>Step 2 — your email, ready to send</Label>
+      {subject && <div style={{position:"relative",border:"1px solid #ece8dd",borderRadius:9,background:"#fffdf8",padding:"10px 14px",paddingRight:44,marginBottom:8}}>
+        <IconCopy text={subject}/>
+        <div style={{fontFamily:FU,fontSize:13.5,color:"#2a2823"}}><span style={{color:"#a39d8e",fontWeight:600}}>Subject: </span>{subject}</div>
+      </div>}
       <div style={{position:"relative",border:"1px solid #ece8dd",borderRadius:12,background:"#fbfaf4",padding:"16px 18px"}}>
-        <IconCopy text={full}/>
-        {subject && <div style={{fontFamily:FU,fontSize:13.5,color:"#2a2823",paddingRight:34,marginBottom:12,paddingBottom:12,borderBottom:"1px solid #ece8dd"}}><span style={{color:"#a39d8e",fontWeight:600}}>Subject: </span>{subject}</div>}
+        <IconCopy text={body}/>
         <pre style={{margin:0,fontFamily:FB,fontSize:14.5,lineHeight:1.55,color:"#33312a",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{body}</pre>
       </div>
     </>}
