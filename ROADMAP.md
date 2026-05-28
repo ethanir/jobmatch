@@ -109,13 +109,14 @@ large-enterprise employers that were previously invisible.
 
 ---
 
-## v3 - launch 🔵 (after coverage)
+## v3 - launch ✅ (shipped)
 
 | Step | What | Notes |
 |---|---|---|
 | 4 | **Name + domain** | ✅ Done. **Jobrolu**, live at jobrolu.com. |
 | 5 | **Landing page** | ✅ Done. `landing.html`, dark single-screen, served at `/`. |
-| 6 | **Deploy the hosted app** | The hosted app (`server.py` + `app.html` + `start.html`, with live refresh and onboarding) works locally. Remaining: deploy this server so it's reachable on the web, plus accounts/multi-user and the API-cost model for real users. |
+| 6 | **Deploy the hosted app** | ✅ Done. Live on Railway at www.jobrolu.com, deployed from this repo. Invite-only via a server-side access code, with per-IP rate limiting and a spend cap protecting the AI budget. |
+| 7 | **Per-user accounts (future)** | Not built yet. Today the feed is shared (same jobs for everyone). True multi-user (each visitor's own profile + own ranking) means a database, logins, and a per-user cost model. That's the next real build, not a tweak. |
 
 ### Naming: settled
 The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlist, Rolescout, Fitscore, Rolu) are kept here only as history.

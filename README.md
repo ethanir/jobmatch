@@ -4,11 +4,15 @@
 
 ### Stop spraying applications. Find the roles that actually fit, and the human to email.
 
-![status](https://img.shields.io/badge/status-complete%20%E2%80%94%20v1-brightgreen) ![field](https://img.shields.io/badge/field-Software%20Engineering-blue) ![python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white) ![fastapi](https://img.shields.io/badge/FastAPI-optional%20API-009688?logo=fastapi&logoColor=white) ![postgres](https://img.shields.io/badge/PostgreSQL-optional-4169E1?logo=postgresql&logoColor=white) ![license](https://img.shields.io/badge/license-MIT-black)
+[![Live](https://img.shields.io/badge/live-jobrolu.com-4fe39b?style=for-the-badge)](https://www.jobrolu.com)
+
+![status](https://img.shields.io/badge/status-live%20v1-brightgreen) ![field](https://img.shields.io/badge/field-Software%20Engineering-blue) ![python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white) ![fastapi](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![railway](https://img.shields.io/badge/deployed%20on-Railway-0B0D0E?logo=railway&logoColor=white) ![license](https://img.shields.io/badge/license-MIT-black)
 
 ![sources](https://img.shields.io/badge/sources-7%20ATS%20%2B%20aggregator-success) ![registry](https://img.shields.io/badge/company%20registry-self--growing-orange) ![ranking](https://img.shields.io/badge/ranking-funnel%20%2B%20LLM-ff5c5c) ![cache](https://img.shields.io/badge/re--runs-near--free-9b59b6) ![auto--apply](https://img.shields.io/badge/auto--apply-never-lightgrey)
 
 **One profile. Thousands of live roles. Ranked honestly. With the recruiter's email attached.**
+
+**🌐 Live at [www.jobrolu.com](https://www.jobrolu.com)** &nbsp;·&nbsp; invite-only access
 
 </div>
 
@@ -43,6 +47,22 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 **The ranked feed** - every match is AI-verified on the full job description, with reasons, gaps, and a ready-to-send outreach email.
 
 ![Ranked feed](docs/screenshots/04-app-feed.png)
+
+---
+
+## 🚀 Live deployment
+
+Jobrolu runs in production at **[www.jobrolu.com](https://www.jobrolu.com)**.
+
+| | |
+|---|---|
+| **Host** | Railway (FastAPI server, deployed straight from this repo) |
+| **Domain** | jobrolu.com via GoDaddy DNS, HTTPS auto-issued |
+| **Access** | invite-only: a server-side access code gates the app, so only invited users can run anything that calls the AI |
+| **Cost control** | per-IP rate limiting on the paid endpoint + an account-level spend cap, so the AI budget can't run away |
+| **Secrets** | API keys live only in the host's private environment, never in this repo |
+
+The landing page is public; the ranked feed and onboarding sit behind the access code.
 
 ---
 
@@ -118,8 +138,8 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 ## ⚡ Quickstart
 
 ```bash
-git clone https://github.com/ethanir/Jobrolu.git
-cd jobrolu
+git clone https://github.com/ethanir/jobmatch.git
+cd jobmatch
 pip install --user -r requirements.txt
 
 # 1) build your profile from your resume (needs ANTHROPIC_API_KEY)
@@ -169,7 +189,7 @@ For a large registry (e.g. 475 companies / ~50k jobs), `TOP_N=100` is too shallo
 ## 📁 Project structure
 
 ```
-jobrolu/
+jobmatch/
 ├── main.py                 # orchestrator: source -> filter -> funnel -> rank -> cache -> enrich -> output
 ├── onboard.py              # resume (PDF/DOCX/TXT) -> structured profile via LLM
 ├── sources.py              # 7 ATS connectors + Adzuna aggregator + curated lists (parallel)
