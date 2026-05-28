@@ -60,7 +60,24 @@ and either the recruiter's email (if Apollo returned one) or a one-click
 Re-run `make_ui.py` only after a fresh `main.py` run. To just look again at the
 current feed, `open viewer.html` is enough.
 
-## 4. Scan one role you found yourself
+## 4. Or: the hosted live app (refresh button + progress bar)
+```bash
+uvicorn server:app --port 8000     # or: python3 -m uvicorn server:app --port 8000
+# then open http://localhost:8000 in your browser
+```
+This serves `app.html` — the same editorial feed, but live. Hit **Refresh jobs**
+and the whole pipeline re-runs in the background while a progress bar tracks each
+stage (pulling, scoring, ranking, drafting). When it finishes, new postings appear
+flagged **NEW** and float to the top; previously-found roles stay put. Paste a
+recruiter's name to personalize the email; subject and body each have their own
+copy button. This is the version v3 deploys to the web.
+
+Set which profile it uses with `PROFILE_PATH` (defaults to `my_profile.json`):
+```bash
+PROFILE_PATH=my_profile.json uvicorn server:app --port 8000
+```
+
+## 5. Scan one role you found yourself
 ```bash
 python3 scan.py my_profile.json "https://link-to-a-job"     # or paste the JD text
 ```
@@ -73,8 +90,6 @@ Without it, the LinkedIn fallback link does the same job for free. The draft ema
 always generates regardless — it only needs your Anthropic key.
 
 ## Optional pieces
-- **API server:** `uvicorn server:app --port 8000` (or `python3 -m uvicorn ...` if
-  uvicorn isn't on PATH) — serves the feed + a `/api/scan` endpoint.
 - **Scheduled refresh:** `python3 worker.py --once` (cron) or `--interval 60` (loop).
 - **Postgres persistence + dead-listing detection:** set `DATABASE_URL`, then
   `python3 -c "import db; c=db.connect(); db.init_db(c)"`. (Code present; not part
@@ -85,8 +100,18 @@ always generates regardless — it only needs your Anthropic key.
 onboard.py -> my_profile.json
                     |
 main.py:  sources -> registry -> prefilter -> score (free) -> rank (LLM, cached) -> enrich
-                    |
-            ranked_jobs.json / .csv  +  ranked_cache.json
-                    |
-make_ui.py -> viewer.html        (or server.py -> /api/jobs)
+   ^                |
+   |        ranked_jobs.json / .csv  +  ranked_cache.json
+   |                |
+   |        make_ui.py -> viewer.html            (standalone, no server)
+   |                |
+   |        server.py -> app.html                (hosted live app)
+   |                       GET  /api/jobs         feed
+   |                       GET  /api/jobs/{id}    one role
+   |                       POST /api/scan         paste-a-JD
+   |                       POST /api/refresh      re-run pipeline in background
+   |                       GET  /api/refresh/status   live progress for the bar
+   |                            |
+   +----------------------------+   "Refresh jobs" button calls main.run() again;
+        cache preserves old jobs, appends + flags new ones.
 ```

@@ -18,18 +18,56 @@ CORS is open for local dev so the Vite/React UI on another port can call it.
 """
 import json
 import os
+import threading
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import db
 import scan as scan_mod
+import main as pipeline
 
 
 class ScanInput(BaseModel):
     text: str
     user_id: str = "me"
+
+
+# ---------------------------------------------------------------- refresh state
+# A single in-process refresh job. Tracks live progress for the UI to poll.
+_refresh = {
+    "running": False,
+    "stage": "idle",
+    "pct": 0,
+    "detail": "",
+    "started_at": None,
+    "finished_at": None,
+    "result": None,
+    "error": None,
+}
+_refresh_lock = threading.Lock()
+
+
+def _run_refresh(profile_path):
+    def progress(stage, pct, detail):
+        with _refresh_lock:
+            _refresh.update(stage=stage, pct=pct, detail=detail)
+    try:
+        with _refresh_lock:
+            _refresh.update(running=True, stage="Starting", pct=0, detail="",
+                            started_at=time.time(), finished_at=None,
+                            result=None, error=None)
+        summary = pipeline.run(profile_path, progress=progress)
+        with _refresh_lock:
+            _refresh.update(running=False, stage="Done", pct=100,
+                            finished_at=time.time(), result=summary)
+    except Exception as e:
+        with _refresh_lock:
+            _refresh.update(running=False, stage="Error", error=str(e),
+                            finished_at=time.time())
 
 app = FastAPI(title="JobMatch API", version="1.0")
 app.add_middleware(
@@ -63,6 +101,8 @@ def _shape(job):
             for c in (job.get("contacts") or [])
         ],
         "draft": job.get("draft", ""),
+        "linkedin_search": job.get("linkedin_search", ""),
+        "is_new": job.get("is_new", False),
     }
 
 
@@ -158,3 +198,43 @@ def scan_endpoint(inp: ScanInput):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"scan failed: {e}")
     return _shape(result)
+
+
+# ---------------------------------------------------------------- refresh
+class RefreshInput(BaseModel):
+    profile_path: str = os.environ.get("PROFILE_PATH", "my_profile.json")
+
+
+@app.post("/api/refresh")
+def start_refresh(inp: RefreshInput = RefreshInput()):
+    """Kick off a background pipeline run. Old jobs are preserved; new postings
+    are appended and flagged. Returns immediately; poll /api/refresh/status."""
+    with _refresh_lock:
+        if _refresh["running"]:
+            return {"started": False, "reason": "a refresh is already running"}
+    path = inp.profile_path
+    if not os.path.exists(path):
+        for alt in ("my_profile.json", "profile.example.json"):
+            if os.path.exists(alt):
+                path = alt
+                break
+    t = threading.Thread(target=_run_refresh, args=(path,), daemon=True)
+    t.start()
+    return {"started": True}
+
+
+@app.get("/api/refresh/status")
+def refresh_status():
+    """Live progress of the running (or last) refresh, for the UI progress bar."""
+    with _refresh_lock:
+        return dict(_refresh)
+
+
+# ---------------------------------------------------------------- web UI
+@app.get("/")
+def index():
+    """Serve the hosted single-page app if present."""
+    for path in ("app.html", "viewer.html"):
+        if os.path.exists(path):
+            return FileResponse(path)
+    raise HTTPException(status_code=404, detail="no UI file found (build app.html)")

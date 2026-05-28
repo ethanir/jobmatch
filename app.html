@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>JobMatch — live feed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f4ef; --card:#fdfcf8; --ink:#1a1a17; --ink2:#33312a; --mut:#8a8578;
+    --line:#e4e0d6; --line2:#ece8dd; --green:#176844; --greenbg:#eaf6ef; --greenln:#cfe7d8;
+    --amber:#a98a3a; --amberbg:#fbf3e2; --amberln:#ecdcb8;
+    --fd:'Fraunces',serif; --fr:'Newsreader',serif; --fu:'IBM Plex Sans',sans-serif; --fm:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fu);-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+  header{position:sticky;top:0;z-index:20;background:rgba(246,244,239,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .head-in{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 0}
+  .brand{font-family:var(--fd);font-size:30px;font-weight:600;letter-spacing:-.02em}
+  .sub{font-family:var(--fu);font-size:13.5px;color:var(--mut);margin-left:14px}
+  .right{display:flex;align-items:center;gap:16px}
+  .meta{font-family:var(--fu);font-size:12.5px;color:var(--mut)}
+  .refresh{display:inline-flex;align-items:center;gap:9px;font-family:var(--fu);font-size:13.5px;font-weight:600;color:#f6f4ef;background:var(--ink);border:none;border-radius:10px;padding:11px 18px;cursor:pointer;transition:opacity .15s}
+  .refresh:hover{opacity:.9}
+  .refresh:disabled{opacity:.55;cursor:default}
+  .refresh svg{transition:transform .6s ease}
+  .refresh.spin svg{animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* progress */
+  .prog{overflow:hidden;max-height:0;transition:max-height .35s ease}
+  .prog.open{max-height:80px}
+  .prog-in{padding:0 0 16px}
+  .bar{height:8px;background:#e7e3d8;border-radius:99px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#176844,#2f9e69);border-radius:99px;transition:width .4s ease}
+  .prog-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .prog-stage{font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2)}
+  .prog-detail{font-family:var(--fm);font-size:11.5px;color:var(--mut)}
+  /* layout */
+  main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
+  @media(max-width:880px){main{grid-template-columns:1fr}}
+  .filters{display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap}
+  .pill{font-family:var(--fu);font-size:13.5px;font-weight:500;padding:8px 15px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}
+  .pill.active{background:var(--ink);color:#f6f4ef;border-color:var(--ink)}
+  .pill b{font-weight:600;opacity:.6;margin-left:5px}
+  .list{display:flex;flex-direction:column}
+  .row{position:relative;padding:20px;border:1px solid transparent;border-bottom:1px solid var(--line2);cursor:pointer;border-radius:12px}
+  .row:hover{background:#fbfaf4}
+  .row.sel{background:var(--card);border:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .row.sel:before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;background:var(--ink);border-radius:2px}
+  .co{font-family:var(--fu);font-size:12px;font-weight:600;color:#6f6a5d;text-transform:uppercase;letter-spacing:.05em}
+  .new{display:inline-block;font-family:var(--fu);font-size:10px;font-weight:600;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:5px;padding:1px 6px;margin-left:8px;letter-spacing:.03em}
+  .ti{font-family:var(--fd);font-size:20px;font-weight:600;line-height:1.18;margin:5px 0 9px;letter-spacing:-.01em}
+  .loc{font-family:var(--fu);font-size:12.5px;color:var(--mut);display:flex;gap:8px;align-items:center}
+  .dot{width:6px;height:6px;border-radius:99px;background:var(--green);display:inline-block}
+  .scorebadge{position:absolute;top:18px;right:18px;font-family:var(--fu);font-size:13px;font-weight:600;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:3px 9px}
+  /* detail */
+  .detail{position:sticky;top:96px;max-height:calc(100vh - 124px);overflow-y:auto;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+  .d-head{padding:26px 28px 22px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+  .d-co{font-family:var(--fu);font-size:13px;font-weight:600;color:#6f6a5d;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .d-ti{font-family:var(--fd);font-size:26px;font-weight:600;margin:0;line-height:1.12;letter-spacing:-.02em}
+  .d-loc{font-family:var(--fu);font-size:13px;color:var(--mut);margin-top:10px;display:flex;gap:9px;flex-wrap:wrap}
+  .ring{flex-shrink:0;width:64px;height:64px;position:relative}
+  .ring svg{transform:rotate(-90deg)}
+  .ring .n{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--fu)}
+  .ring .n b{font-size:19px;font-weight:600;line-height:1}
+  .ring .n s{font-size:9px;color:var(--mut);text-decoration:none;letter-spacing:.08em;margin-top:1px}
+  .d-body{padding:22px 28px}
+  .lbl{font-family:var(--fu);font-size:11.5px;font-weight:600;color:#a39d8e;text-transform:uppercase;letter-spacing:.07em;margin:0 0 11px}
+  ul.reasons{margin:0 0 20px;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+  ul.reasons li{display:flex;gap:9px;font-family:var(--fu);font-size:14px;line-height:1.45}
+  ul.reasons.pos li{color:var(--ink2)} ul.reasons.pos li i{color:var(--green)}
+  ul.reasons.con li{color:var(--mut)} ul.reasons.con li i{color:var(--amber)}
+  ul.reasons li i{font-style:normal;margin-top:1px;flex-shrink:0}
+  .cols{display:flex;gap:26px;margin-bottom:22px;flex-wrap:wrap}
+  .col{flex:1;min-width:160px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-family:var(--fu);font-size:12.5px;font-weight:500;padding:3px 10px;border-radius:7px}
+  .chip.m{color:var(--green);background:var(--greenbg);border:1px solid var(--greenln)}
+  .chip.g{color:#8a5d10;background:var(--amberbg);border:1px solid var(--amberln)}
+  /* outreach */
+  .field{position:relative;border:1px solid var(--line2);border-radius:9px;background:#fffdf8;padding:10px 14px}
+  .icbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--line2);background:#fdfcf8;color:var(--mut);cursor:pointer;padding:0}
+  .icbtn.done{border-color:var(--greenln);background:var(--greenbg);color:var(--green)}
+  .row-2{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .linkbtn{text-decoration:none;font-family:var(--fu);font-size:13px;font-weight:600;padding:9px 14px;border-radius:9px;border:1px solid #cfcabc;color:var(--ink)}
+  .name-in{flex:1;min-width:160px;font-family:var(--fu);font-size:13.5px;padding:9px 12px;border-radius:9px;border:1px solid #cfcabc;background:#fffdf8;color:var(--ink);outline:none}
+  pre.email{margin:0;font-family:var(--fm);font-size:14px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-word}
+  .apply{display:block;text-align:center;text-decoration:none;font-family:var(--fu);font-size:14px;font-weight:600;padding:13px 18px;border-radius:10px;background:var(--ink);color:#f6f4ef;margin-top:16px}
+  .empty{padding:60px 24px;text-align:center;color:var(--mut);font-family:var(--fu)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:var(--ink);color:#f6f4ef;font-family:var(--fu);font-size:13.5px;padding:11px 18px;border-radius:10px;transition:.25s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap head-in">
+    <div style="display:flex;align-items:baseline">
+      <span class="brand">JobMatch</span>
+      <span class="sub" id="sub">your live feed</span>
+    </div>
+    <div class="right">
+      <span class="meta" id="meta"></span>
+      <button class="refresh" id="refreshBtn" onclick="startRefresh()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        <span id="refreshLabel">Refresh jobs</span>
+      </button>
+    </div>
+  </div>
+  <div class="wrap"><div class="prog" id="prog"><div class="prog-in">
+    <div class="prog-row"><span class="prog-stage" id="progStage">Starting…</span><span class="prog-detail" id="progDetail"></span></div>
+    <div class="bar"><i id="progFill"></i></div>
+  </div></div></div>
+</header>
+
+<div class="wrap"><main>
+  <section>
+    <div class="filters" id="filters"></div>
+    <div class="list" id="list"></div>
+  </section>
+  <section id="detailWrap"></section>
+</main></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
+let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null;
+
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600);}
+function copy(text){navigator.clipboard?.writeText(text);return true;}
+
+async function loadJobs(){
+  try{
+    const r = await fetch(API + "/api/jobs?tier=all");
+    const d = await r.json();
+    JOBS = d.jobs || [];
+    document.getElementById("meta").textContent = JOBS.length + " roles";
+    render();
+  }catch(e){
+    document.getElementById("list").innerHTML = '<div class="empty">Can\'t reach the server.<br>Start it with <b>uvicorn server:app --port 8000</b>, then reload.</div>';
+  }
+}
+
+function counts(){const c={all:JOBS.length,strong:0,possible:0,skip:0};JOBS.forEach(j=>{c[j.tier]=(c[j.tier]||0)+1});return c;}
+
+function render(){
+  const c = counts();
+  const tiers = [["strong","Strong"],["possible","Possible"],["skip","Skip"],["all","All"]];
+  document.getElementById("filters").innerHTML = tiers.map(([k,label])=>
+    `<button class="pill ${FILTER===k?'active':''}" onclick="setFilter('${k}')">${label}<b>${c[k]||0}</b></button>`).join("");
+  let rows = JOBS.filter(j=>FILTER==="all"||j.tier===FILTER);
+  const list = document.getElementById("list");
+  if(!rows.length){list.innerHTML='<div class="empty">No '+FILTER+' roles yet.<br>Hit <b>Refresh jobs</b> to pull the latest.</div>';document.getElementById("detailWrap").innerHTML="";return;}
+  if(!SELECTED || !rows.find(j=>j.id===SELECTED)) SELECTED = rows[0].id;
+  list.innerHTML = rows.map(j=>`
+    <div class="row ${j.id===SELECTED?'sel':''}" onclick="select('${j.id}')">
+      ${j.score?`<span class="scorebadge">${j.score}</span>`:""}
+      <div class="co">${esc(j.company)}${j.is_new?'<span class="new">NEW</span>':''}</div>
+      <div class="ti">${esc(j.title)}</div>
+      <div class="loc"><span class="dot"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span></div>
+    </div>`).join("");
+  renderDetail(rows.find(j=>j.id===SELECTED));
+}
+
+function renderDetail(j){
+  if(!j){document.getElementById("detailWrap").innerHTML="";return;}
+  const neg=/\b(no |not |lack|missing|unmet|gap|concern|relocat|onsite; candidate|may need|unclear|minor)\b/i;
+  const pros=(j.reasons||[]).filter(r=>!neg.test(r)), cons=(j.reasons||[]).filter(r=>neg.test(r));
+  const R=70,C=2*Math.PI*R,off=C*(1-(j.score||0)/100);
+  const d=j.draft, hasD = d && (typeof d==="object"?(d.body||d.subject):d);
+  const subjT=(typeof d==="object"?(d.subject||""):""), bodyT=(typeof d==="object"?(d.body||""):(d||""));
+  document.getElementById("detailWrap").innerHTML = `
+  <div class="detail">
+    <div class="d-head">
+      <div>
+        <div class="d-co">${esc(j.company)}</div>
+        <h1 class="d-ti">${esc(j.title)}</h1>
+        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span></div>
+      </div>
+      <div class="ring"><svg width="64" height="64"><circle cx="32" cy="32" r="26" fill="none" stroke="#e7e3d8" stroke-width="5"/><circle cx="32" cy="32" r="26" fill="none" stroke="#176844" stroke-width="5" stroke-linecap="round" stroke-dasharray="${2*Math.PI*26}" stroke-dashoffset="${2*Math.PI*26*(1-(j.score||0)/100)}"/></svg><div class="n"><b>${j.score||0}</b><s>FIT</s></div></div>
+    </div>
+    <div class="d-body">
+      ${pros.length?`<p class="lbl">Why you fit</p><ul class="reasons pos">${pros.map(r=>`<li><i>✓</i><span>${esc(r)}</span></li>`).join("")}</ul>`:""}
+      ${cons.length?`<p class="lbl">Worth knowing</p><ul class="reasons con">${cons.map(r=>`<li><i>!</i><span>${esc(r)}</span></li>`).join("")}</ul>`:""}
+      <div class="cols">
+        ${(j.matched||[]).length?`<div class="col"><p class="lbl">You match</p><div class="chips">${j.matched.map(s=>`<span class="chip m">${esc(s)}</span>`).join("")}</div></div>`:""}
+        ${(j.missing||[]).length?`<div class="col"><p class="lbl">Gaps</p><div class="chips">${j.missing.map(s=>`<span class="chip g">${esc(s)}</span>`).join("")}</div></div>`:""}
+      </div>
+      ${(hasD||j.linkedin_search)?outreach(j,subjT,bodyT,hasD):""}
+      ${j.url?`<a class="apply" href="${j.url}" target="_blank" rel="noreferrer">Open the posting →</a>`:""}
+    </div>
+  </div>`;
+}
+
+function outreach(j,subjT,bodyT,hasD){
+  return `
+  <p class="lbl">Step 1 — find the recruiter</p>
+  <div class="row-2">
+    ${j.linkedin_search?`<a class="linkbtn" href="${j.linkedin_search}" target="_blank" rel="noreferrer">Find recruiter on LinkedIn →</a>`:""}
+    <input class="name-in" id="recName" placeholder="paste recruiter's name" oninput="personalize('${j.id}')"/>
+  </div>
+  ${hasD?`
+  <p class="lbl">Step 2 — your email, ready to send</p>
+  ${subjT?`<div class="field" style="margin-bottom:8px;padding-right:44px"><button class="icbtn" id="cpS" onclick="copyEl('subjText','cpS')">${clip()}</button><div style="font-family:var(--fu);font-size:13.5px;color:var(--ink2)"><span style="color:#a39d8e;font-weight:600">Subject: </span><span id="subjText">${esc(subjT.replace(/{{NAME}}/g,'there'))}</span></div></div>`:""}
+  <div class="field" style="border-radius:12px;background:#fbfaf4">
+    <button class="icbtn" id="cpB" onclick="copyEl('bodyText','cpB')">${clip()}</button>
+    <pre class="email" id="bodyText">${esc(bodyT.replace(/{{NAME}}/g,'there'))}</pre>
+  </div>`:""}`;
+}
+function clip(){return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';}
+function check(){return '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';}
+
+function personalize(id){
+  const j = JOBS.find(x=>x.id===id); if(!j) return;
+  const nm = (document.getElementById("recName").value.trim().split(" ")[0])||"there";
+  const d=j.draft, subjT=(typeof d==="object"?(d.subject||""):""), bodyT=(typeof d==="object"?(d.body||""):(d||""));
+  const s=document.getElementById("subjText"), b=document.getElementById("bodyText");
+  if(s) s.textContent = subjT.replace(/{{NAME}}/g,nm);
+  if(b) b.textContent = bodyT.replace(/{{NAME}}/g,nm);
+}
+function copyEl(id,btn){const el=document.getElementById(id);if(!el)return;copy(el.textContent);const b=document.getElementById(btn);b.classList.add("done");b.innerHTML=check();toast("Copied");setTimeout(()=>{b.classList.remove("done");b.innerHTML=clip();},1500);}
+function select(id){SELECTED=id;render();}
+function setFilter(f){FILTER=f;SELECTED=null;render();}
+function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+/* ---------- live refresh ---------- */
+async function startRefresh(){
+  const btn=document.getElementById("refreshBtn");
+  const r = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json()).catch(()=>null);
+  if(!r){toast("Can't reach the server");return;}
+  if(!r.started){toast(r.reason||"Already running");}
+  btn.classList.add("spin");btn.disabled=true;
+  document.getElementById("refreshLabel").textContent="Searching…";
+  document.getElementById("prog").classList.add("open");
+  POLL = setInterval(pollStatus, 700);
+  pollStatus();
+}
+async function pollStatus(){
+  const s = await fetch(API+"/api/refresh/status").then(r=>r.json()).catch(()=>null);
+  if(!s) return;
+  document.getElementById("progStage").textContent = s.stage||"Working…";
+  document.getElementById("progDetail").textContent = s.detail||"";
+  document.getElementById("progFill").style.width = (s.pct||0)+"%";
+  if(!s.running){
+    clearInterval(POLL);POLL=null;
+    const btn=document.getElementById("refreshBtn");
+    btn.classList.remove("spin");btn.disabled=false;
+    document.getElementById("refreshLabel").textContent="Refresh jobs";
+    if(s.error){toast("Refresh failed");document.getElementById("progStage").textContent="Error: "+s.error;return;}
+    if(s.result){toast(`+${s.result.new} new · ${s.result.strong} strong`);}
+    setTimeout(()=>document.getElementById("prog").classList.remove("open"),1400);
+    await loadJobs();
+  }
+}
+
+loadJobs();
+</script>
+</body>
+</html>

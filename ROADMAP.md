@@ -55,6 +55,7 @@ That's the whole remaining plan. Everything else is polish.
 | ✅ | Recruiter workflow — LinkedIn discovery + live name personalization |
 | ✅ | Standalone viewer — Why-you-fit / Worth-knowing split, per-part copy buttons |
 | ✅ | Scan-any-role — paste a JD/URL for a one-off fit-rank + draft |
+| ✅ | Hosted live feed — `server.py` + `app.html`: a Refresh button re-runs the pipeline in the background with a live progress bar; new roles append and are flagged, old roles persist. (This is the foundation the v3 hosted version builds on.) |
 
 **Honest note on Apollo:** contact lookup is wired in, but Apollo's people-search API is gated behind their paid Organization tier (confirmed: free/trial keys return `API_INACCESSIBLE`). The tool detects this and falls back to the free LinkedIn flow automatically. **Do not pay for Apollo for this** — the volume need (a few recruiters) doesn't justify it; LinkedIn covers it free.
 
@@ -89,7 +90,7 @@ Invert the model: instead of enumerating every company, query one large pre-buil
 |---|---|---|
 | 4 | **Pick a final name** | `JobMatch` is taken. Shortlist below. |
 | 5 | **Buy the domain** | Check `.com` + trademark before committing. |
-| 6 | **Landing page + hosted version** | Marketing page; serve the viewer from the web (accounts) instead of a local `viewer.html`. |
+| 6 | **Landing page + deploy the hosted app** | The hosted app (`server.py` + `app.html`, with live refresh) already works locally. v3 = a marketing landing page + deploying this server so it's reachable on the web, plus accounts/multi-user. |
 
 ### Name shortlist
 `JobMatch` is taken, so the working candidates (verify domain + trademark before buying):

@@ -95,32 +95,47 @@ def fmt_date(ts):
     return datetime.date.fromtimestamp(ts).isoformat() if ts else ""
 
 
-def main():
-    profile_path = sys.argv[1] if len(sys.argv) > 1 else "profile.example.json"
+def run(profile_path="profile.example.json", progress=None, top_n=None):
+    """Run the full pipeline. Importable (used by server.py refresh) and CLI.
+
+    progress: optional callback(stage:str, pct:int, detail:str) for live UI updates.
+    top_n:    override TOP_N (how many jobs the LLM ranks); defaults to env/100.
+    Returns a summary dict. Writes ranked_jobs.json / .csv as a side effect.
+    The cache preserves previously-seen jobs, so re-runs APPEND new postings
+    (flagged is_new) without dropping the old ones.
+    """
+    tn = TOP_N if top_n is None else int(top_n)
+
+    def emit(stage, pct, detail=""):
+        if progress:
+            try:
+                progress(stage, pct, detail)
+            except Exception:
+                pass
+        line = f"  {detail}" if detail else ""
+        print(f"[{pct:3d}%] {stage}{(' — ' + detail) if detail else ''}")
+
     profile = load_profile(profile_path)
-    print(f"Profile: {profile.get('name')} | targets: {', '.join(profile.get('target_titles', []))}\n")
+    emit("Loading profile", 2, profile.get("name", ""))
 
     reg = registry.load()
     companies = {f"{c['ats']}:{c['token']}": c for c in SEED_COMPANIES}
     companies.update(reg)
     company_list = list(companies.values())
-    print(f"Pulling jobs from {len(company_list)} companies + curated repo...")
+    emit("Pulling jobs", 8, f"{len(company_list)} companies")
     jobs = sources.pull_all(company_list, include_repo=True)
-    print(f"  total pulled: {len(jobs)}\n")
+    emit("Pulling jobs", 45, f"{len(jobs)} roles pulled")
 
     reg, n_new = registry.discover_from_jobs(jobs, reg)
     registry.save(reg)
-    print(f"Registry: +{n_new} new -> {len(reg)} total known\n")
+    emit("Updating registry", 50, f"+{n_new} new companies ({len(reg)} known)")
 
-    print("Prefiltering...")
     jobs = prefilter.prefilter(jobs, profile)
-    print(f"  survived prefilter: {len(jobs)}\n")
+    emit("Prefiltering", 58, f"{len(jobs)} survived")
 
-    print("Free heuristic scoring (no API cost)...")
     jobs = score.rank_free(jobs, profile)
-    print(f"  scored {len(jobs)} jobs; top free score: {jobs[0]['_score'] if jobs else 0}\n")
+    emit("Free scoring", 66, f"{len(jobs)} scored")
 
-    # Cache: flag brand-new postings + reuse prior rankings so re-runs are cheap.
     cache = jobcache.load()
     n_new_postings = 0
     for j in jobs:
@@ -128,16 +143,15 @@ def main():
         j["is_new"] = j["_id"] not in cache["seen"]
         if j["is_new"]:
             n_new_postings += 1
-    print(f"  {n_new_postings} brand-new postings since last run\n")
+    emit("Checking for new postings", 70, f"{n_new_postings} brand-new")
 
-    top = jobs[:TOP_N]
-    rest = jobs[TOP_N:]
+    top = jobs[:tn]
+    rest = jobs[tn:]
 
-    if TOP_N > 0:
+    if tn > 0:
         need_llm = [j for j in top if j["_id"] not in cache["ranked"]]
         cached = [j for j in top if j["_id"] in cache["ranked"]]
-        print(f"LLM-ranking {len(need_llm)} new jobs "
-              f"({len(cached)} loaded free from cache)...")
+        emit("Ranking fit (AI)", 74, f"{len(need_llm)} new, {len(cached)} cached")
         if need_llm:
             rank.run(need_llm, profile)               # the only paid step
             for j in need_llm:
@@ -145,14 +159,13 @@ def main():
         for j in cached:
             j["fit"] = cache["ranked"][j["_id"]]
     else:
-        print("TOP_N=0 -> skipping LLM entirely (free run).\n")
+        emit("Ranking fit (free)", 74, "TOP_N=0, no LLM")
         for j in top:
             j["fit"] = score.heuristic_fit(j)
 
     for j in rest:                        # everything else: free heuristic tier
         j["fit"] = score.heuristic_fit(j)
 
-    # Remember everything we saw this run (so next run knows what's new).
     for j in jobs:
         cache["seen"].setdefault(j["_id"], jobcache.today())
 
@@ -164,6 +177,7 @@ def main():
         -((j.get("fit") or {}).get("score") or 0),
     ))
 
+    emit("Finding recruiters + drafting", 88, "strong matches")
     all_jobs = enrich_jobs(all_jobs, profile, cache)
     jobcache.save(cache)                   # save AFTER drafts are cached too
 
@@ -181,8 +195,16 @@ def main():
 
     strong = sum(1 for j in all_jobs if (j.get('fit') or {}).get('tier') == 'strong')
     new_n = sum(1 for j in all_jobs if j.get("is_new"))
-    print(f"\nDone. {len(all_jobs)} jobs ranked ({strong} strong, {new_n} new) "
-          f"-> ranked_jobs.csv / ranked_jobs.json")
+    emit("Done", 100, f"{len(all_jobs)} ranked, {strong} strong, {new_n} new")
+    return {"total": len(all_jobs), "strong": strong, "new": new_n,
+            "new_postings": n_new_postings}
+
+
+def main():
+    profile_path = sys.argv[1] if len(sys.argv) > 1 else "profile.example.json"
+    profile = load_profile(profile_path)
+    print(f"Profile: {profile.get('name')} | targets: {', '.join(profile.get('target_titles', []))}\n")
+    run(profile_path)
 
 
 if __name__ == "__main__":

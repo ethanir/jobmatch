@@ -72,6 +72,7 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 | 🖥️ | **Standalone viewer** | `make_ui.py` bakes the feed into a single `viewer.html` — no server, no build step. Filterable by Strong / Possible / Skip. Each role shows **Why you fit** (the positives) and **Worth knowing** (the honest concerns) split cleanly, plus matched skills and gaps. |
 | 🔎 | **Scan any role** | Paste a JD or URL from LinkedIn / Handshake → instant fit-rank + draft for one role you found yourself. |
 | 🛑 | **No auto-apply, no auto-send** | Deliberately. It protects your accounts, your sender reputation, and the quality of every application. |
+| 🔄 | **Hosted live feed + refresh** | Run `server.py` and open the app in a browser: a single **Refresh jobs** button re-runs the whole pipeline in the background with a **live progress bar**. New postings are appended and flagged **NEW**; previously-found roles never disappear. This is the hosted version that v3 ships. |
 
 ---
 
@@ -103,6 +104,9 @@ python3 main.py my_profile.json         # -> ranked_jobs.csv / ranked_jobs.json
 # 3) view the feed (standalone, no server)
 python3 make_ui.py                      # -> viewer.html
 open viewer.html
+
+# OR run the hosted live version with a refresh button + progress bar
+uvicorn server:app --port 8000          # then open http://localhost:8000
 ```
 
 **Free run** (no LLM cost at all): `TOP_N=0 python3 main.py my_profile.json`
@@ -126,7 +130,8 @@ jobmatch/
 ├── enrich.py               # recruiter contacts (Apollo) + email verify + outreach draft
 ├── scan.py                 # paste-a-JD/URL -> full pipeline on one role
 ├── make_ui.py              # bakes ranked_jobs.json -> standalone viewer.html
-├── server.py               # optional FastAPI: serves the feed + /api/scan
+├── app.html                # hosted single-page app: live feed + refresh button + progress bar
+├── server.py               # FastAPI: serves the feed, /api/refresh (live), /api/scan
 ├── db.py                   # optional Postgres schema + freshness/death-detection
 ├── worker.py               # optional scheduled re-pull
 ├── prompts.py              # profile schema + all LLM prompts (the heart)
