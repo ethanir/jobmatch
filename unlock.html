@@ -61,6 +61,19 @@
 </main>
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
+
+// Where was the user trying to go? The server serves this same unlock page at
+// /app and /start when locked, so the current path tells us their destination.
+// Default to /app. Also honor an explicit ?next= if present.
+function destination(){
+  const params = new URLSearchParams(location.search);
+  const next = params.get("next");
+  if(next === "/start" || next === "/app") return next;
+  const p = location.pathname;
+  if(p.startsWith("/start")) return "/start";
+  return "/app";
+}
+
 async function unlock(){
   const code = document.getElementById("code").value.trim();
   const msg = document.getElementById("msg");
@@ -69,14 +82,23 @@ async function unlock(){
   btn.disabled = true; msg.className="msg"; msg.textContent="Checking...";
   try{
     const r = await fetch(API + "/api/unlock", {
-      method:"POST", headers:{"Content-Type":"application/json"},
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      credentials:"same-origin",
       body: JSON.stringify({code})
     });
-    const d = await r.json();
-    if(d.ok){ msg.textContent="Welcome in."; location.href="/app"; }
-    else { msg.className="msg err"; msg.textContent = d.error || "Incorrect code."; btn.disabled=false; }
+    let ok = false, errText = "Incorrect code.";
+    try{ const d = await r.json(); ok = !!d.ok; if(d && d.error) errText = d.error; }
+    catch(e){ ok = r.ok; }
+    if(ok){
+      msg.className = "msg"; msg.textContent = "Welcome in.";
+      // Bulletproof redirect: assign sends them where they were headed.
+      window.location.assign(destination());
+      return;
+    }
+    msg.className = "msg err"; msg.textContent = errText; btn.disabled = false;
   }catch(e){
-    msg.className="msg err"; msg.textContent="Can't reach the server."; btn.disabled=false;
+    msg.className = "msg err"; msg.textContent = "Can't reach the server. Try again."; btn.disabled = false;
   }
 }
 </script>
