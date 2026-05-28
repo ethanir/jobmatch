@@ -91,13 +91,13 @@ always generates regardless — it only needs your Anthropic key.
 
 ## Widen coverage (more companies, $0 API)
 ```bash
-python3 seed.py                 # validate + add the built-in starter list
-python3 seed.py companies.txt   # also add your own (one per line: "ats token name")
-python3 seed.py --dry-run       # preview what would be added, change nothing
+python3 bulk_seed.py --dry-run  # validate the big built-in list, preview only
+python3 bulk_seed.py            # add all the live ones (175+ curated companies)
+python3 seed.py companies.txt   # or add your own (one per line: "ats token name")
 ```
-`seed.py` checks each candidate against its live ATS board and adds only the ones
-that actually return jobs, so the registry never fills with dead tokens. It makes
-plain HTTP calls (no LLM), so it costs nothing in API and runs in parallel. After
+Both scripts check each candidate against its live ATS board and add only the ones
+that actually return jobs, so the registry never fills with dead tokens. They make
+plain HTTP calls (no LLM), so they cost nothing in API and run in parallel. After
 seeding, the next `main.py` run automatically pulls from every added company.
 File format (lines starting with `#` are ignored):
 ```

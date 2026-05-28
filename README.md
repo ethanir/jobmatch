@@ -64,7 +64,7 @@ You stay in control of the final send. No spammy auto-apply, no getting your Lin
 |---|---|---|
 | 🔎 | **Multi-source sourcing** | Pulls live roles from **6 ATS platforms** (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable) plus curated new-grad lists. Pulls run in parallel — ~40k roles in under a minute. |
 | 🌱 | **Self-growing registry** | Every job URL teaches it a new company token, so coverage **compounds automatically** — no manual company list to maintain. |
-| 📈 | **Registry seeding (`seed.py`)** | Widen coverage on demand: validates candidate companies against their live ATS boards and adds only the ones that really return jobs. **$0 API cost** (plain HTTP, no LLM), runs in parallel. This is the v2 "coverage" lever — more companies in the funnel, same ranking cost. |
+| 📈 | **Registry seeding (`seed.py` / `bulk_seed.py`)** | Widen coverage on demand: validates candidate companies against their live ATS boards and adds only the ones that really return jobs. `bulk_seed.py` ships a large curated list (175+ known tech employers across Greenhouse/Lever/Ashby). **$0 API cost** (plain HTTP, no LLM), runs in parallel. This is the v2 "coverage" lever — more companies in the funnel, same ranking cost. |
 | 💸 | **Cost-correct funnel** | A free heuristic scores *every* role; only the top N (default 100) hit the LLM. A full run costs **~$1, not ~$70.** Set `TOP_N=0` for a fully free run. |
 | 🧠 | **Honest fit ranking** | The LLM scores your top matches with reasons and gaps. It will tell you to **skip** a bad fit. |
 | ♻️ | **Seen-job cache** | Remembers what it already ranked, so **re-runs only pay for genuinely new jobs.** New postings are flagged **NEW** and float to the top. |
@@ -112,7 +112,7 @@ uvicorn server:app --port 8000          # then open http://localhost:8000
 
 **Free run** (no LLM cost at all): `TOP_N=0 python3 main.py my_profile.json`
 **Rank more deeply** (costs more): `TOP_N=200 python3 main.py my_profile.json`
-**Widen coverage** (add more companies, $0 API): `python3 seed.py`
+**Widen coverage** (add more companies, $0 API): `python3 bulk_seed.py` (or `seed.py`)
 **Keep it fresh on a schedule:** `python3 worker.py --interval 60`
 
 ### Coverage, cost, and speed — how they relate
@@ -141,6 +141,7 @@ jobmatch/
 ├── sources.py              # 6 ATS connectors + curated-list pull (parallel)
 ├── registry.py             # self-growing company->token registry
 ├── seed.py                 # widen the registry: validate + add companies (v2 coverage, $0 API)
+├── bulk_seed.py            # large curated company list, validated + added in bulk ($0 API)
 ├── prefilter.py            # free rule-based cut before any LLM call
 ├── score.py                # free heuristic funnel scorer ($0) — picks what the LLM sees
 ├── rank.py                 # LLM fit-ranking engine (parallel)

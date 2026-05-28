@@ -71,11 +71,21 @@ Go from ~400 to several thousand companies by seeding the registry from large pu
 - Public Greenhouse / Lever / Ashby board listings
 - levels.fyi company list
 
-**`seed.py` is built and does exactly this:** give it candidate companies (a built-in
-starter list, or a file of `ats token name` lines), and it validates each against its
-live ATS board, adding only the ones that actually return jobs. **$0 API cost**, parallel,
-fast. Run `python3 seed.py` to add the starter set, or `python3 seed.py companies.txt`
-to bulk-add your own. Remaining work here is just *feeding it bigger public lists*.
+**`seed.py` and `bulk_seed.py` are built and do exactly this:** `bulk_seed.py` ships a
+large curated list (175+ known tech employers across Greenhouse/Lever/Ashby) and
+validates each against its live board, adding only the ones that actually return jobs.
+`seed.py` does the same for a custom file. **$0 API cost**, parallel, fast. Run
+`python3 bulk_seed.py` to add the curated set. Remaining work here is just *feeding
+even bigger public lists*.
+
+**Honest coverage limits (what we can and can't cleanly scan):**
+- ✅ **Greenhouse / Lever / Ashby / SmartRecruiters / Recruitee / Workable** — clean public
+  JSON, fully supported, expandable via seeding. This is where the easy wins are.
+- ⚠️ **Workday / iCIMS / Taleo** — large employers live here, but they have no clean public
+  API (tenant-specific endpoints, anti-bot measures). Real value, real difficulty; a
+  separate careful project, not a quick add.
+- ❌ **LinkedIn / Indeed** — actively block scraping and forbid it in their ToS (account-ban
+  risk). Deliberately out of scope; the right way to use those is applying directly, by hand.
 
 **Why first:** every company added is more real roles entering the funnel, with zero new code paths — it reuses the existing connectors. This alone meaningfully widens the net.
 **Interview value:** "scans N thousand companies" is a far stronger line than "~400."
