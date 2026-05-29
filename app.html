@@ -268,6 +268,14 @@
   .addjob-field input:focus{border-color:var(--greenln)}
   .addjob-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   @media(max-width:480px){.addjob-row{grid-template-columns:1fr}}
+  .toolbtns{display:flex;gap:9px;flex-wrap:wrap}
+  .ext-btn{display:inline-flex;align-items:center;gap:7px;background:transparent;color:var(--mut);border:1px solid var(--line2);border-radius:11px;padding:10px 14px;font-family:var(--fu);font-weight:700;font-size:13px;cursor:pointer}
+  .ext-btn:hover{color:var(--ink);border-color:var(--mut)}
+  .ext-status{font-family:var(--fu);font-size:12.5px;font-weight:700;margin-bottom:13px}
+  .ext-status.ok{color:var(--green)}
+  .ext-status.no{color:var(--mut)}
+  .ext-key{width:100%;background:#0a0d12;border:1px solid var(--line2);border-radius:10px;padding:12px;color:var(--ink);font-family:var(--fu);font-size:13px;font-weight:600;letter-spacing:.02em;outline:none;word-break:break-all;line-height:1.5}
+  .ext-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
 </style>
 </head>
 <body>
@@ -301,7 +309,10 @@
         <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
         <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
       </div>
-      <button class="addjob-btn" onclick="openAddJob()">+ Add a job you found on LinkedIn or Handshake</button>
+      <div class="toolbtns">
+        <button class="addjob-btn" onclick="openAddJob()">+ Add a job</button>
+        <button class="ext-btn" onclick="openExt()">Browser extension</button>
+      </div>
     </div>
     <div class="list" id="list"></div>
   </section>
@@ -358,6 +369,26 @@
     </div>
     <button class="modal-btn" id="addSaveBtn" onclick="submitAddJob()">Add to my feed →</button>
     <div class="modal-msg" id="addMsg"></div>
+  </div>
+</div>
+
+<!-- browser extension: generate the per-user connect key -->
+<div class="modal-bg" id="extBg" onclick="if(event.target===this)closeExt()">
+  <div class="modal wide" style="position:relative">
+    <button class="modal-x" onclick="closeExt()" aria-label="close">×</button>
+    <h2>Browser extension</h2>
+    <p>Scan jobs straight from LinkedIn and Handshake into your feed as you browse them. Generate a connect key here, then paste it into the Jobrolu extension once.</p>
+    <div class="ext-status no" id="extStatus">Checking&hellip;</div>
+    <div class="addjob-field">
+      <label>Your connect key</label>
+      <div class="ext-key" id="extKey">Generate a key to connect the extension.</div>
+    </div>
+    <div class="ext-row">
+      <button class="modal-btn" id="extGenBtn" style="flex:1" onclick="genExtKey()">Generate connect key →</button>
+      <button class="addjob-btn" id="extCopyBtn" style="display:none" onclick="copyExtKey()">Copy</button>
+    </div>
+    <button class="ext-btn" style="margin-top:11px" onclick="disconnectExt()">Disconnect extension</button>
+    <div class="modal-msg" id="extMsg"></div>
   </div>
 </div>
 
@@ -583,6 +614,50 @@ function submitAddJob(){
         msg.className="modal-msg"; msg.textContent=d.error || "Couldn't add the job.";
       }
     }).catch(function(){ ADD_SAVING=false; btn.disabled=false; btn.textContent=label; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+}
+
+/* Browser extension: per-user connect key. The extension runs on LinkedIn /
+   Handshake and cannot use this site's cookie, so it authenticates with this key. */
+function openExt(){
+  document.getElementById("extBg").classList.add("show");
+  var msg=document.getElementById("extMsg"); msg.textContent=""; msg.className="modal-msg";
+  document.getElementById("extKey").textContent="Generate a key to connect the extension.";
+  document.getElementById("extCopyBtn").style.display="none";
+  extStatusCheck();
+}
+function closeExt(){ document.getElementById("extBg").classList.remove("show"); }
+function extStatusCheck(){
+  var el=document.getElementById("extStatus"); el.className="ext-status no"; el.textContent="Checking\u2026";
+  fetch(API+"/api/ext/status",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+    if(d && d.connected){ el.className="ext-status ok"; el.textContent="Connected. The extension is linked to your account."; }
+    else { el.className="ext-status no"; el.textContent="Not connected yet."; }
+  }).catch(function(){ el.className="ext-status no"; el.textContent="Couldn't check status."; });
+}
+let EXT_KEY="";
+function genExtKey(){
+  var msg=document.getElementById("extMsg"); msg.className="modal-msg"; msg.textContent="";
+  var btn=document.getElementById("extGenBtn"); var label=btn.textContent; btn.disabled=true; btn.textContent="Generating...";
+  fetch(API+"/api/ext/token",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin"})
+    .then(function(r){ if(r.status===401){ throw {signin:true}; } return r.json(); })
+    .then(function(d){
+      btn.disabled=false; btn.textContent=label;
+      if(d.ok && d.token){
+        EXT_KEY=d.token;
+        document.getElementById("extKey").textContent=d.token;
+        document.getElementById("extCopyBtn").style.display="";
+        var st=document.getElementById("extStatus"); st.className="ext-status ok"; st.textContent="Connected. Paste this key into the extension, then Save.";
+        msg.className="modal-msg ok"; msg.textContent="Key generated. Copy it into the extension popup. Generating a new key replaces this one.";
+      } else { msg.className="modal-msg"; msg.textContent=d.error||"Couldn't generate a key."; }
+    }).catch(function(e){ btn.disabled=false; btn.textContent=label; msg.className="modal-msg"; msg.textContent=(e&&e.signin)?"Sign in to connect the extension.":"Can't reach the server."; });
+}
+function copyExtKey(){ if(!EXT_KEY) return; copy(EXT_KEY); var b=document.getElementById("extCopyBtn"); var t=b.textContent; b.textContent="Copied"; setTimeout(function(){ b.textContent=t; },1400); }
+function disconnectExt(){
+  var msg=document.getElementById("extMsg");
+  fetch(API+"/api/ext/disconnect",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin"})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){ EXT_KEY=""; document.getElementById("extKey").textContent="Generate a key to connect the extension."; document.getElementById("extCopyBtn").style.display="none"; msg.className="modal-msg ok"; msg.textContent="Extension disconnected."; extStatusCheck(); }
+      else { msg.className="modal-msg"; msg.textContent=d.error||"Couldn't disconnect."; }
+    }).catch(function(){ msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
 }
 function copyRankPrompt(){
   if(!RANK_PROMPT) return;
