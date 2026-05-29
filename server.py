@@ -419,6 +419,7 @@ def _shape(job):
         "draft": job.get("draft", ""),
         "linkedin_search": job.get("linkedin_search", ""),
         "is_new": job.get("is_new", False),
+        "status": job.get("status", "") or "",
     }
 
 
@@ -496,13 +497,22 @@ def _visitor_feed(user_id, profile, tier):
     if not base:
         return _from_file(), "file"
     overlay = {}
+    statusmap = {}
     if db.has_db():
         try:
             with db.get_conn() as conn:
                 if conn:
                     overlay = db.get_rankings_map(conn, user_id)
+                    # Status is independent of rankings: a status failure (e.g. an
+                    # older DB before this table existed) must never discard the
+                    # rankings overlay, so it gets its own guard.
+                    try:
+                        statusmap = db.get_status_map(conn, user_id)
+                    except Exception:
+                        statusmap = {}
         except Exception:
             overlay = {}
+            statusmap = {}
     out = []
     for j in base:
         jid = j["id"]
@@ -521,6 +531,7 @@ def _visitor_feed(user_id, profile, tier):
             "source": j["source"],
             "fit": fit,
             "is_new": j["is_new"],
+            "status": statusmap.get(jid, ""),
         }))
     order = {"strong": 0, "possible": 1, "skip": 2}
     out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))
@@ -573,6 +584,37 @@ def get_job(request: Request, job_id: str):
         if j["id"] == job_id:
             return j
     raise HTTPException(status_code=404, detail="job not found")
+
+
+_VALID_STATUSES = {"applied", "interviewing", "rejected", "none"}
+
+
+@app.post("/api/jobs/{job_id}/status")
+async def set_job_status(request: Request, job_id: str):
+    """Set or clear this account's application status for a job: 'applied',
+    'interviewing', 'rejected', or 'none' to clear. Free and per-user; it only
+    affects the signer's own feed."""
+    if db.has_db():
+        _require_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    status = (body.get("status") or "none").strip().lower()
+    if status not in _VALID_STATUSES:
+        raise HTTPException(status_code=400, detail="invalid status")
+    out = "" if status == "none" else status
+    # Local/dev has no accounts, so there is nothing to persist; report success
+    # so the UI behaves identically without a database.
+    if not db.has_db():
+        return {"ok": True, "status": out}
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                db.set_status(conn, request.state.user_id, job_id, status)
+    except Exception:
+        raise HTTPException(status_code=500, detail="could not save status")
+    return {"ok": True, "status": out}
 
 
 def _load_profile(user_id):

@@ -13,6 +13,7 @@
     --line:#262e39; --line2:#2e3742;
     --green:#4fe39b; --greenbg:#16271e; --greenln:#244e38;
     --amber:#e3c14f; --amberbg:#272216; --amberln:#4e4524;
+    --red:#e88b8b; --redbg:#2a1a1c; --redln:#4e2c30;
     --fd:'Fredoka',sans-serif; --fr:'Nunito',sans-serif; --fu:'Nunito',sans-serif; --fm:'Nunito',sans-serif;
   }
   *{box-sizing:border-box}
@@ -158,29 +159,43 @@
   pre.email{margin:0;font-family:var(--fm);font-size:14px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-word}
   .apply{display:block;text-align:center;text-decoration:none;font-family:var(--fu);font-size:15px;font-weight:700;padding:13px 18px;border-radius:12px;background:var(--green);color:#08120c;margin-top:16px}
   .empty{padding:60px 24px;text-align:center;color:var(--mut);font-family:var(--fu)}
-  /* smooth first-load: a thin indeterminate top bar + skeleton placeholders that
-     mirror the real feed, so nothing ever shows as a blank, stalled page */
+  /* smooth first-load: a clean centered spinner plus a thin indeterminate top
+     bar, so the feed never shows as a blank, stalled page while it scores */
   .loadbar{position:fixed;top:0;left:0;right:0;height:3px;z-index:60;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .3s}
   .loadbar.on{opacity:1}
   .loadbar i{position:absolute;height:100%;width:38%;left:-38%;border-radius:0 3px 3px 0;background:linear-gradient(90deg,transparent,var(--green),transparent)}
   .loadbar.on i{animation:lbar 1.15s ease-in-out infinite}
   @keyframes lbar{0%{left:-38%}55%{left:58%}100%{left:110%}}
-  @keyframes shim{0%{background-position:-440px 0}100%{background-position:440px 0}}
-  .sk{display:block;background:linear-gradient(90deg,#171d26 0%,#232c39 50%,#171d26 100%);background-size:880px 100%;animation:shim 1.3s linear infinite;border-radius:7px}
-  .skrow{position:relative;padding:20px;border-bottom:1px solid var(--line2)}
-  .sk-badge{position:absolute;top:18px;right:18px;width:36px;height:22px;border-radius:8px}
-  .sk-co{width:84px;height:11px;margin-bottom:11px}
-  .sk-ti{width:70%;height:18px;margin-bottom:13px}
-  .sk-ti.s{width:48%}
-  .sk-loc{width:42%;height:11px}
-  .skdetail{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:26px 28px}
-  .sk-h1{width:58%;height:26px;margin-bottom:13px}
-  .sk-h2{width:34%;height:13px;margin-bottom:26px}
-  .sk-line{height:13px;margin-bottom:12px}
-  .sk-line.w1{width:92%}.sk-line.w2{width:82%}.sk-line.w3{width:64%}
-  .skchips{display:flex;gap:8px;margin-top:20px}
-  .skchip{width:66px;height:26px;border-radius:8px}
-  @media(prefers-reduced-motion:reduce){.sk,.loadbar.on i{animation:none}}
+  .loadwrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:84px 24px;text-align:center}
+  .spinner{width:32px;height:32px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--green);animation:spin .75s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loadwrap .lt{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--mut);letter-spacing:.01em}
+  @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.6s}.loadbar.on i{animation:none}}
+  /* application status: a compact dropdown in the detail's top corner + a small
+     coloured pill on any list row that has a status set */
+  .d-right{display:flex;flex-direction:column;align-items:flex-end;gap:13px}
+  .stdd{position:relative}
+  .stdd>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-family:var(--fu);font-size:12.5px;font-weight:700;color:var(--ink2);background:#1b212b;border:1px solid var(--line2);border-radius:9px;padding:7px 11px;white-space:nowrap;transition:border-color .15s,color .15s}
+  .stdd>summary::-webkit-details-marker{display:none}
+  .stdd>summary:hover{border-color:var(--green);color:var(--ink)}
+  .stcar{transition:transform .15s;opacity:.65}
+  .stdd[open]>summary .stcar{transform:rotate(180deg)}
+  .stdot{width:8px;height:8px;border-radius:50%;background:var(--mut);flex:0 0 auto}
+  .stbtn.st-applied .stdot,.stdot.d-applied{background:var(--green)}
+  .stbtn.st-interviewing .stdot,.stdot.d-interviewing{background:var(--amber)}
+  .stbtn.st-rejected .stdot,.stdot.d-rejected{background:var(--red)}
+  .stbtn.st-applied{border-color:var(--greenln);color:var(--green)}
+  .stbtn.st-interviewing{border-color:var(--amberln);color:var(--amber)}
+  .stbtn.st-rejected{border-color:var(--redln);color:var(--red)}
+  .stmenu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;min-width:170px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 12px 30px rgba(0,0,0,.42)}
+  .stmenu button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 10px;font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2);cursor:pointer;transition:background .12s,color .12s}
+  .stmenu button:hover{background:#1b212b;color:var(--ink)}
+  .stmenu button.on{color:var(--ink)}
+  .stmenu button.on::after{content:"\2713";margin-left:auto;color:var(--green);font-size:12px}
+  .stpill{display:inline-flex;align-items:center;font-family:var(--fu);font-size:10.5px;font-weight:800;letter-spacing:.02em;border-radius:6px;padding:1px 7px;border:1px solid}
+  .stpill.st-applied{color:var(--green);background:var(--greenbg);border-color:var(--greenln)}
+  .stpill.st-interviewing{color:var(--amber);background:var(--amberbg);border-color:var(--amberln)}
+  .stpill.st-rejected{color:var(--red);background:var(--redbg);border-color:var(--redln)}
   .loadmore{width:100%;margin:14px 0 4px;padding:13px;background:var(--card);border:1px solid var(--line2);border-radius:12px;color:var(--ink2);font-family:var(--fu);font-size:13px;font-weight:700;cursor:pointer;transition:border-color .15s,color .15s}
   .loadmore:hover{border-color:var(--green);color:var(--green)}
   .loadmore b{color:var(--mut);font-weight:600}
@@ -334,27 +349,17 @@ function dotClass(j){ if(j.tier==="strong"&&verified(j)) return ""; if(j.tier===
 function ringColor(j){ if(!verified(j)) return "#7e8a96"; if(j.tier==="strong") return "#4fe39b"; if(j.tier==="possible") return "#e3c14f"; return "#7e8a96"; }
 
 /* ---------- feed ---------- */
-function skeletonRows(n){
-  let h="";
-  for(let i=0;i<n;i++){
-    h+='<div class="skrow"><span class="sk sk-badge"></span><span class="sk sk-co"></span>'
-     + '<span class="sk sk-ti'+(i%2?' s':'')+'"></span><span class="sk sk-loc"></span></div>';
-  }
-  return h;
-}
-function skeletonDetail(){
-  return '<div class="skdetail"><span class="sk sk-h1"></span><span class="sk sk-h2"></span>'
-    + '<span class="sk sk-line w1"></span><span class="sk sk-line w2"></span><span class="sk sk-line w3"></span>'
-    + '<div class="skchips"><span class="sk skchip"></span><span class="sk skchip"></span><span class="sk skchip"></span></div></div>';
+function loadingSpinner(label){
+  return '<div class="loadwrap"><div class="spinner"></div><div class="lt">'+(label||"Loading your matches")+'</div></div>';
 }
 function showLoading(on){ const lb=document.getElementById("loadbar"); if(lb) lb.classList.toggle("on", !!on); }
 
 async function loadJobs(){
   const list = document.getElementById("list");
   if(!JOBS.length){
-    list.innerHTML = skeletonRows(7);
+    list.innerHTML = loadingSpinner();
     const dw = document.getElementById("detailWrap");
-    if(dw) dw.innerHTML = skeletonDetail();
+    if(dw) dw.innerHTML = "";
   }
   showLoading(true);
   try{
@@ -559,7 +564,7 @@ function render(){
       <span class="scorebadge ${badgeClass(j)}">${badgeText(j)}</span>
       <div class="co">${esc(j.company)}${j.is_new?'<span class="new">NEW</span>':''}</div>
       <div class="ti">${esc(j.title)}</div>
-      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span></div>
+      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span>${j.status?`<span class="stpill st-${j.status}">${statusLabel(j.status)}</span>`:""}</div>
     </div>`).join("")
     + (rows.length>shown.length
         ? '<button class="loadmore" onclick="showMore()">Show more <b>('+(rows.length-shown.length)+' left)</b></button>'
@@ -584,6 +589,37 @@ function emptyMessage(searched){
   return 'No '+FILTER+' roles in this view.<br>Check the other tabs.';
 }
 
+function statusLabel(s){return s==='applied'?'Applied':s==='interviewing'?'Interviewing':s==='rejected'?'Rejected':'Not applied';}
+
+function statusControl(j){
+  const s=j.status||"";
+  const opt=(val,lbl)=>`<button class="${s===val?'on':''}" onclick="setStatus('${j.id}','${val}',event)"><span class="stdot d-${val}"></span>${lbl}</button>`;
+  return `<details class="stdd">
+    <summary class="stbtn ${s?('st-'+s):''}"><span class="stdot"></span><span>${statusLabel(s)}</span><svg class="stcar" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div class="stmenu">
+      <button class="${!s?'on':''}" onclick="setStatus('${j.id}','none',event)"><span class="stdot"></span>Not applied</button>
+      ${opt('applied','Applied')}
+      ${opt('interviewing','Interviewing')}
+      ${opt('rejected','Rejected')}
+    </div>
+  </details>`;
+}
+
+/* Optimistically set the status so the UI feels instant, then persist. On any
+   failure we put the previous value back and tell the user. */
+function setStatus(id,status,ev){
+  if(ev){ev.preventDefault();ev.stopPropagation();}
+  const i=JOBS.findIndex(j=>j.id===id); if(i<0) return;
+  const prev=JOBS[i].status||"";
+  const next=(status==='none')?"":status;
+  if(prev===next){ const dd=document.querySelector('.stdd[open]'); if(dd) dd.open=false; return; }
+  JOBS[i].status=next;
+  render();
+  fetch(API+"/api/jobs/"+encodeURIComponent(id)+"/status",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:status})})
+    .then(r=>r.json()).then(d=>{ if(!d||!d.ok){ JOBS[i].status=prev; render(); toast("Couldn't save that status."); } })
+    .catch(()=>{ JOBS[i].status=prev; render(); toast("Can't reach the server."); });
+}
+
 function renderDetail(j){
   if(!j){document.getElementById("detailWrap").innerHTML="";return;}
   const neg=/\b(no |not |lack|missing|unmet|gap|concern|relocat|onsite; candidate|may need|unclear|minor)\b/i;
@@ -599,7 +635,10 @@ function renderDetail(j){
         <h1 class="d-ti">${esc(j.title)}</h1>
         <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span></div>
       </div>
-      <div class="ring"><svg width="64" height="64"><circle cx="32" cy="32" r="26" fill="none" stroke="#222a34" stroke-width="5"/><circle cx="32" cy="32" r="26" fill="none" stroke="${ringColor(j)}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${2*Math.PI*26}" stroke-dashoffset="${2*Math.PI*26*(1-(j.score||0)/100)}"/></svg><div class="n"><b>${j.score||0}</b><s>${verified(j)?'FIT':'EST'}</s></div></div>
+      <div class="d-right">
+        ${statusControl(j)}
+        <div class="ring"><svg width="64" height="64"><circle cx="32" cy="32" r="26" fill="none" stroke="#222a34" stroke-width="5"/><circle cx="32" cy="32" r="26" fill="none" stroke="${ringColor(j)}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${2*Math.PI*26}" stroke-dashoffset="${2*Math.PI*26*(1-(j.score||0)/100)}"/></svg><div class="n"><b>${j.score||0}</b><s>${verified(j)?'FIT':'EST'}</s></div></div>
+      </div>
     </div>
     <div class="d-body">
       ${pros.length?`<p class="lbl">Why you fit</p><ul class="reasons pos">${pros.map(r=>`<li><i>✓</i><span>${esc(r)}</span></li>`).join("")}</ul>`:""}

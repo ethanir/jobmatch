@@ -122,6 +122,14 @@ CREATE TABLE IF NOT EXISTS pool (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT pool_single_row CHECK (id = 1)
 );
+
+CREATE TABLE IF NOT EXISTS job_status (
+    user_id     TEXT        NOT NULL,
+    job_id      TEXT        NOT NULL,
+    status      TEXT        NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, job_id)
+);
 """
 
 
@@ -477,6 +485,48 @@ def save_ranking(conn, user_id: str, job: dict, fit: dict, ranked_by: str) -> No
                 Json(fit.get("missing_skills") or []),
                 ranked_by,
             ),
+        )
+    conn.commit()
+
+
+# ---------------------------------------------------------------- application status
+def get_status_map(conn, user_id: str) -> dict:
+    """Bulk-load every application status for a user as {job_id: status}, so the
+    feed can overlay them on thousands of jobs in one query. Statuses are one of
+    'applied', 'interviewing', 'rejected'."""
+    if not conn or not user_id:
+        return {}
+    out = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT job_id, status FROM job_status WHERE user_id = %s",
+            (user_id,),
+        )
+        for r in cur.fetchall():
+            out[r["job_id"]] = r["status"]
+    return out
+
+
+def set_status(conn, user_id: str, job_id: str, status: str) -> None:
+    """Set or clear one job's application status for a user. An empty status (or
+    'none') clears it by deleting the row, so the default 'no status' state never
+    leaves stray rows behind."""
+    if not conn or not user_id or not job_id:
+        return
+    if not status or status == "none":
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM job_status WHERE user_id = %s AND job_id = %s",
+                (user_id, job_id),
+            )
+        conn.commit()
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO job_status (user_id, job_id, status) VALUES (%s,%s,%s) "
+            "ON CONFLICT (user_id, job_id) DO UPDATE SET "
+            "  status = EXCLUDED.status, updated_at = NOW()",
+            (user_id, job_id, status),
         )
     conn.commit()
 

@@ -39,6 +39,22 @@
   .head p{font-size:17px;color:var(--ink2);max-width:46ch;margin:0 auto;font-weight:500}
   .head p b{color:var(--ink);font-weight:800}
   /* two cards */
+  /* saved-profile summary: the Profile tab when a profile already exists */
+  .pv{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px 32px;max-width:720px;margin:6px auto 0;text-align:left}
+  .pv-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:26px}
+  .pv-eyebrow{font-family:var(--fb);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+  .pv-name{font-family:var(--fd);font-size:30px;font-weight:600;letter-spacing:-.01em;margin:7px 0 0}
+  .pv-edit{width:auto!important;padding:11px 20px;flex:0 0 auto}
+  .pv-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px 26px}
+  .pv-row.pv-full{grid-column:1 / -1}
+  .pv-k{font-family:var(--fb);font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin-bottom:9px}
+  .pv-v{font-family:var(--fb);font-size:15px;font-weight:600;color:var(--ink2)}
+  .pv-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .pv-chip{font-family:var(--fb);font-size:13px;font-weight:700;color:var(--ink);background:var(--card2);border:1px solid var(--line2);border-radius:8px;padding:5px 11px}
+  .pv-empty{font-family:var(--fb);font-size:14px;color:var(--mut);font-weight:600}
+  .pv-feedlink{display:inline-block;margin-top:28px;font-family:var(--fd);font-size:15px;font-weight:600;color:var(--acc);text-decoration:none}
+  .pv-feedlink:hover{color:var(--acc2)}
+  @media(max-width:620px){.pv-grid{grid-template-columns:1fr}.pv-top{flex-direction:column}.pv{padding:24px 20px}}
   .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
   @media(max-width:760px){.cards{grid-template-columns:1fr}}
   .opt{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;display:flex;flex-direction:column;transition:transform .15s,border-color .15s}
@@ -113,6 +129,8 @@
 </nav>
 
 <div class="wrap">
+  <div id="profileView"></div>
+  <div id="buildWrap" style="display:none">
   <div class="head">
     <div class="step-dots"><span class="sd on"></span><span class="sd"></span><span class="sd"></span></div>
     <h1>Build your profile.</h1>
@@ -216,6 +234,7 @@
     </div>
     <button class="btn p" id="formSave" style="margin-top:20px;width:auto;padding:13px 28px" onclick="saveForm()">Save and see my feed →</button>
     <div class="msg" id="formMsg"></div>
+  </div>
   </div>
 
   <a class="back" href="/">← Back</a>
@@ -376,6 +395,43 @@ async function signOut(){
   try{ await fetch(API+"/api/auth/logout",{method:"POST",credentials:"same-origin"}); }catch(e){}
   location.replace("/signin");
 }
+function esc(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function expLabel(ye){ if(ye==null) return "Not specified"; if(ye<=0) return "Student / new grad"; if(ye<=2) return "1 to 2 years"; if(ye<=5) return "3 to 5 years"; return "5+ years"; }
+function workLabel(pref){ pref=pref||{}; if(pref.remote_ok && !pref.onsite_ok) return "Remote only"; if(!pref.remote_ok && pref.onsite_ok) return "Onsite only"; return "Remote or onsite"; }
+function pvChips(arr){ if(!arr||!arr.length) return '<span class="pv-empty">None listed</span>'; return arr.map(function(s){return '<span class="pv-chip">'+esc(s)+'</span>';}).join(""); }
+function renderProfileView(p){
+  var sk=p.skills||{};
+  var skills=[].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[],sk.other||[]);
+  var pref=p.preferences||{};
+  var locs=(pref.locations||[]); if(!locs.length && p.location) locs=[p.location];
+  var name=p.name||"";
+  document.getElementById("profileView").innerHTML =
+    '<div class="pv">'
+    + '<div class="pv-top"><div><div class="pv-eyebrow">Your profile</div>'
+    + '<h1 class="pv-name">'+(name?esc(name):"Ready to match")+'</h1></div>'
+    + '<button class="btn p pv-edit" onclick="showBuild(true)">Edit profile</button></div>'
+    + '<div class="pv-grid">'
+    + '<div class="pv-row pv-full"><div class="pv-k">Roles you want</div><div class="pv-v pv-chips">'+pvChips(p.target_titles)+'</div></div>'
+    + '<div class="pv-row pv-full"><div class="pv-k">Skills</div><div class="pv-v pv-chips">'+pvChips(skills)+'</div></div>'
+    + '<div class="pv-row pv-full"><div class="pv-k">Preferred locations</div><div class="pv-v pv-chips">'+pvChips(locs)+'</div></div>'
+    + '<div class="pv-row"><div class="pv-k">Experience</div><div class="pv-v">'+esc(expLabel(p.years_experience))+'</div></div>'
+    + '<div class="pv-row"><div class="pv-k">Work preference</div><div class="pv-v">'+esc(workLabel(pref))+'</div></div>'
+    + '<div class="pv-row"><div class="pv-k">Visa sponsorship</div><div class="pv-v">'+(p.requires_sponsorship?"Needs sponsorship":"Not needed")+'</div></div>'
+    + '</div>'
+    + '<a class="pv-feedlink" href="/app">Go to your live feed →</a>'
+    + '</div>';
+}
+function showProfileView(){ document.getElementById("profileView").style.display=""; document.getElementById("buildWrap").style.display="none"; }
+function showBuild(forEdit){
+  document.getElementById("profileView").style.display="none";
+  document.getElementById("buildWrap").style.display="";
+  if(forEdit){
+    var h=document.querySelector("#buildWrap .head h1"); if(h) h.textContent="Edit your profile.";
+    var sub=document.querySelector("#buildWrap .head p"); if(sub) sub.textContent="Update anything below, then save to re-rank your feed.";
+    openForm();
+    var fp=document.getElementById("formPanel"); if(fp) fp.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+}
 (async function init(){
   try{
     const m = await fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
@@ -384,8 +440,9 @@ async function signOut(){
   }catch(e){ /* if me fails, the profile/feed calls still gate server-side */ }
   try{
     const d = await fetch(API+"/api/profile",{credentials:"same-origin"}).then(r=>r.json());
-    if(d && d.profile){ prefillForm(d.profile); }
+    if(d && d.profile){ prefillForm(d.profile); renderProfileView(d.profile); showProfileView(); return; }
   }catch(e){}
+  showBuild(false);
   openForm();
 })();
 </script>

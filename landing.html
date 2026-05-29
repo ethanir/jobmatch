@@ -36,7 +36,8 @@
   .nav-r a:hover{color:var(--acc)}
   .nav-r .pill{color:var(--bg);background:var(--acc);padding:10px 20px;border-radius:99px;box-shadow:0 4px 18px var(--accglow)}
   .nav-r .pill:hover{color:var(--bg);background:var(--acc2)}
-  @media(max-width:620px){.nav-r a.txt{display:none}}
+  .navmail{font-size:14px;font-weight:600;color:var(--mut);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @media(max-width:620px){.nav-r a.txt{display:none}.navmail{display:none}}
 
   /* hero fills remaining space, centered, no scroll */
   .hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px 38px 26px;min-height:0}
@@ -59,8 +60,8 @@
   /* the funnel: many roles -> ranked -> read in full -> the few that fit */
   .funnel{display:flex;align-items:stretch;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:36px;width:100%;max-width:880px}
   .stage{flex:1 1 0;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 14px 16px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;gap:11px}
-  .stage.final{border-color:#2c4a3a;background:linear-gradient(180deg,var(--card) 0%,#13201a 100%);box-shadow:0 10px 34px var(--accglow)}
-  .stage .viz{height:54px;display:flex;align-items:center;justify-content:center;width:100%}
+  .stage.final{border-color:#2c4a3a;background:linear-gradient(180deg,var(--card) 0%,#13201a 100%);box-shadow:0 0 0 1px rgba(79,227,155,.14), 0 6px 24px -4px var(--accglow)}
+  .stage .viz{height:68px;display:flex;align-items:center;justify-content:center;width:100%}
   .stage .slabel{font-family:var(--fd);font-size:14px;font-weight:600;color:var(--ink);line-height:1.15}
   .stage .scap{font-size:11px;color:var(--mut);font-weight:700;letter-spacing:.02em;line-height:1.35}
   .farrow{flex:0 0 auto;display:flex;align-items:center;color:#3a4654}
@@ -71,10 +72,10 @@
   .srcgrid span{height:13px;border-radius:4px;background:#232c39}
   .srcgrid span:nth-child(3n){background:#2a3442}
   .ic{width:46px;height:46px;border-radius:13px;background:var(--accdim);border:1px solid #224f38;display:flex;align-items:center;justify-content:center;color:var(--acc)}
-  .matchcards{display:flex;flex-direction:column;gap:6px;width:100%;max-width:122px}
-  .mcard{display:flex;align-items:center;justify-content:space-between;gap:7px;background:#10141b;border:1px solid var(--line2);border-radius:8px;padding:7px 8px}
-  .mcard .mln{height:7px;border-radius:3px;background:#2c3744;flex:1}
-  .mcard .msc{font-family:var(--fb);font-size:11px;font-weight:800;color:var(--acc);background:var(--accdim);border:1px solid #224f38;border-radius:5px;padding:1px 6px;flex:0 0 auto}
+  .matchcards{display:flex;flex-direction:column;gap:4px;width:100%;max-width:122px}
+  .mcard{display:flex;align-items:center;justify-content:space-between;gap:7px;background:#10141b;border:1px solid var(--line2);border-radius:7px;padding:3px 7px}
+  .mcard .mln{height:6px;border-radius:3px;background:#2c3744;flex:1}
+  .mcard .msc{font-family:var(--fb);font-size:10px;font-weight:800;color:var(--acc);background:var(--accdim);border:1px solid #224f38;border-radius:5px;padding:0 5px;flex:0 0 auto}
 
   /* tiny footer line inside viewport */
   .foot{flex-shrink:0;text-align:center;padding:0 0 16px;font-size:12px;color:var(--mut);font-weight:600}
@@ -89,7 +90,7 @@
 
 <nav>
   <div class="brand"><span class="mk"></span>Jobrolu</div>
-  <div class="nav-r">
+  <div class="nav-r" id="navR">
     <a class="txt" href="/signin">Sign in</a>
     <a class="pill" href="/signin?new=1">Get started</a>
   </div>
@@ -99,11 +100,11 @@
   <div class="tag rv d1"><span class="dot"></span>Built for software engineers</div>
   <h1 class="rv d2">The job feed that<br>actually <span class="hl">reads</span> the job.</h1>
   <p class="sub rv d3">Every open <b>engineering</b> role, read in full by AI, ranked down to the few that truly fit your stack.</p>
-  <div class="ctas rv d4">
+  <div class="ctas rv d4" id="heroCtas">
     <a class="btn p" href="/signin?new=1">Get started free →</a>
     <a class="btn g" href="/signin">Sign in</a>
   </div>
-  <p class="micro rv d4">Free to start. You always send the application yourself, never us.</p>
+  <p class="micro rv d4" id="heroMicro">Free to start. You always send the application yourself, never us.</p>
 
   <div class="funnel rv d5">
     <div class="stage">
@@ -148,5 +149,25 @@
 
 <div class="foot">Jobrolu · AI job matching for software engineers · jobrolu.com</div>
 
+<script>
+function lsignout(e){ if(e) e.preventDefault(); fetch("/api/auth/logout",{method:"POST",credentials:"same-origin"}).catch(function(){}).then(function(){ location.reload(); }); }
+(function(){
+  function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  fetch("/api/auth/me",{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(m){
+    if(!m || !m.signed_in) return;   // default markup is the signed-out state
+    var nav=document.getElementById("navR");
+    if(nav){
+      var email=esc(m.email);
+      nav.innerHTML = (email?('<span class="navmail">'+email+'</span>'):'')
+        + '<a class="pill" href="/app">Go to your feed</a>'
+        + '<a class="txt" href="#" onclick="lsignout(event)">Sign out</a>';
+    }
+    var ctas=document.getElementById("heroCtas");
+    if(ctas){ ctas.innerHTML = '<a class="btn p" href="/app">Go to your feed →</a>'; }
+    var micro=document.getElementById("heroMicro");
+    if(micro){ micro.textContent = "You're signed in. Pick up right where you left off."; }
+  }).catch(function(){ /* stay signed-out */ });
+})();
+</script>
 </body>
 </html>
