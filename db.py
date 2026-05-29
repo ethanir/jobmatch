@@ -66,10 +66,19 @@ _pool_lock = threading.Lock()
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
     id            TEXT        PRIMARY KEY,
+    email         TEXT,
+    password_hash TEXT,
     is_owner      BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migrate older deployments whose users table predates accounts (must run
+-- before the email index below, which references these columns).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email         TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users (LOWER(email)) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS profiles (
     user_id     TEXT         PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -289,6 +298,63 @@ def get_user(conn, user_id: str) -> Optional[dict]:
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         return cur.fetchone()
+
+
+# ---------------------------------------------------------------- accounts
+# Real email + password accounts, stored on the existing users row. Passwords
+# are hashed with PBKDF2-HMAC-SHA256 (stdlib, no extra dependency) using a random
+# per-user salt, and verified in constant time. An account reuses the browser's
+# id, so any profile built before signing up is preserved.
+import base64 as _base64
+import hmac as _hmac
+
+_PBKDF2_ROUNDS = 200_000
+
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ROUNDS)
+    return _base64.b64encode(salt).decode() + "$" + _base64.b64encode(dk).decode()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        salt_b64, hash_b64 = (stored or "").split("$", 1)
+        salt = _base64.b64decode(salt_b64)
+        expected = _base64.b64decode(hash_b64)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ROUNDS)
+        return _hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+
+def get_account_by_email(conn, email: str) -> Optional[dict]:
+    """Return the user row for this email (case-insensitive), or None."""
+    if not conn or not email:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
+        return cur.fetchone()
+
+
+def set_account(conn, user_id: str, email: str, password_hash: str) -> bool:
+    """Attach an email + password to the given user row (creating it if needed).
+    Returns False if the email is already taken by a different user."""
+    if not conn or not user_id or not email or not password_hash:
+        return False
+    existing = get_account_by_email(conn, email)
+    if existing and existing.get("id") != user_id:
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (id, email, password_hash) VALUES (%s, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "  email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, "
+            "  last_seen_at = NOW()",
+            (user_id, email, password_hash),
+        )
+    conn.commit()
+    return True
 
 
 # ---------------------------------------------------------------- profiles

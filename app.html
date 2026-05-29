@@ -27,6 +27,14 @@
   .meta{font-family:var(--fu);font-size:12.5px;color:var(--mut)}
   .navlink{font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);text-decoration:none;transition:color .15s}
   .navlink:hover{color:var(--green)}
+  .tabs{display:flex;gap:4px;margin-left:20px}
+  .tab{font-family:var(--fu);font-size:14px;font-weight:700;color:var(--mut);text-decoration:none;padding:7px 14px;border-radius:9px;transition:color .15s,background .15s;white-space:nowrap}
+  .tab:hover{color:var(--ink2)}
+  .tab.active{color:var(--ink);background:var(--card)}
+  .acct{display:flex;align-items:center;gap:10px}
+  .acct-email{font-family:var(--fu);font-size:12.5px;color:var(--mut);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .signout{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s}
+  .signout:hover{border-color:var(--greenln);color:var(--green)}
   /* unlock control */
   .lockbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:10px 15px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
   .lockbtn:hover{border-color:var(--green);color:var(--green)}
@@ -194,13 +202,15 @@
 <body>
 <header>
   <div class="wrap head-in">
-    <div style="display:flex;align-items:baseline">
+    <div style="display:flex;align-items:center">
       <a href="/" class="brand" style="text-decoration:none">Jobrolu</a>
-      <span class="sub" id="sub">your live feed</span>
+      <nav class="tabs">
+        <a class="tab active" href="/app">Live Feed</a>
+        <a class="tab" href="/start">Profile</a>
+      </nav>
     </div>
     <div class="right">
       <span class="meta" id="meta"></span>
-      <a class="navlink" href="/start">Profile</a>
       <button class="lockbtn" id="lockBtn" onclick="openUnlock()">
         <svg class="ic-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         <svg class="ic-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -210,6 +220,10 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
         <span id="refreshLabel">Refresh jobs</span>
       </button>
+      <div class="acct">
+        <span class="acct-email" id="acctEmail"></span>
+        <button class="signout" onclick="signOut()">Sign out</button>
+      </div>
     </div>
   </div>
   <div class="wrap"><div class="depth" id="depthPanel"><div class="depth-in">
@@ -319,14 +333,15 @@ function renderLock(){
   const lb=document.getElementById("lockBtn");
   const ll=document.getElementById("lockLabel");
   const rb=document.getElementById("refreshBtn");
+  // The Refresh button and depth slider are visible to everyone; running a
+  // refresh still requires the access code (onRefreshClick prompts for it).
+  document.getElementById("depthPanel").classList.add("open");
   if(UNLOCKED){
     lb.classList.add("unlocked"); ll.textContent="Unlocked";
     rb.classList.remove("locked");
-    document.getElementById("depthPanel").classList.add("open");
   }else{
     lb.classList.remove("unlocked"); ll.textContent="Unlock";
     rb.classList.add("locked");
-    document.getElementById("depthPanel").classList.remove("open");
   }
 }
 function depthMatches(n){ return 3.6*(1-Math.exp(-n/118)); }
@@ -395,7 +410,8 @@ async function loadJobs(){
   try{
     const r = await fetch(API + "/api/jobs?tier=all");
     const d = await r.json();
-    // Feed is gated: no profile means sign up first. The owner is never gated.
+    // Feed requires a signed-in account, and then a profile.
+    if(d.needs_auth){ location.replace("/signin"); return; }
     if(d.needs_profile){ location.replace("/start"); return; }
     JOBS = d.jobs || [];
     SOURCE = d.source || "";
@@ -637,9 +653,22 @@ async function pollStatus(){
   }
 }
 
+async function loadMe(){
+  try{
+    const m = await fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
+    if(!m.signed_in){ location.replace("/signin"); return; }
+    const el=document.getElementById("acctEmail"); if(el) el.textContent = m.email || "";
+  }catch(e){ /* if this fails, loadJobs still gates on needs_auth */ }
+}
+async function signOut(){
+  try{ await fetch(API+"/api/auth/logout",{method:"POST",credentials:"same-origin"}); }catch(e){}
+  location.replace("/signin");
+}
+
 updateDepth();
 fetchCacheStats();
 checkUnlock();
+loadMe();
 loadJobs();
 </script>
 </body>

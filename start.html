@@ -22,6 +22,14 @@
   .brand .mk{width:13px;height:13px;border-radius:99px;background:var(--acc);box-shadow:0 0 14px var(--acc)}
   .nav-r a{font-size:15px;font-weight:600;color:var(--ink2)}
   .nav-r a:hover{color:var(--acc)}
+  .tabs{display:flex;gap:4px;margin-left:18px}
+  .tab{font-family:var(--fb);font-size:14px;font-weight:700;color:var(--mut);text-decoration:none;padding:7px 14px;border-radius:9px;transition:color .15s,background .15s;white-space:nowrap}
+  .tab:hover{color:var(--ink2)}
+  .tab.active{color:var(--ink);background:var(--card)}
+  .acct{display:flex;align-items:center;gap:10px}
+  .acct-email{font-size:12.5px;color:var(--mut);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .signout{font-family:var(--fb);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s}
+  .signout:hover{border-color:var(--accln);color:var(--acc)}
   .wrap{max-width:920px;margin:0 auto;padding:18px 28px 70px}
   .head{text-align:center;margin:18px 0 40px}
   .step-dots{display:flex;gap:8px;justify-content:center;margin-bottom:22px}
@@ -91,15 +99,24 @@
 </head>
 <body>
 <nav>
-  <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
-  <div class="nav-r"><a href="/">← Home</a></div>
+  <div style="display:flex;align-items:center">
+    <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
+    <div class="tabs">
+      <a class="tab" href="/app">Live Feed</a>
+      <a class="tab active" href="/start">Profile</a>
+    </div>
+  </div>
+  <div class="acct">
+    <span class="acct-email" id="acctEmail"></span>
+    <button class="signout" onclick="signOut()">Sign out</button>
+  </div>
 </nav>
 
 <div class="wrap">
   <div class="head">
     <div class="step-dots"><span class="sd on"></span><span class="sd"></span><span class="sd"></span></div>
-    <h1>Sign up to see your matches.</h1>
-    <p>Jobrolu ranks every job against <b>you</b>, so it needs your background first. Build your profile below and your feed unlocks. Takes about a minute, and it is free.</p>
+    <h1>Build your profile.</h1>
+    <p>Jobrolu ranks every job against <b>you</b>, so it needs your background. Fill it in, upload a resume, or use your own AI, then review and save. Takes about a minute, and it is free.</p>
   </div>
 
   <div class="cards">
@@ -118,7 +135,6 @@
       <label class="btn p" id="resumeLabel" for="resumeFile">Choose resume file</label>
       <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md"/>
       <div class="fname" id="fname"></div>
-      <div class="ownernote" id="resumeOwnerNote">Resume reading uses the owner's AI, so it is owner-only for now. Use one of the other two options.</div>
       <div class="msg" id="resumeMsg"></div>
     </div>
 
@@ -341,24 +357,26 @@ function prefillForm(p){
   return true;
 }
 
-function markResumeOwnerOnly(){
-  const card=document.getElementById("resumeCard"); if(card) card.classList.add("locked");
-  const note=document.getElementById("resumeOwnerNote"); if(note) note.classList.add("show");
-  const lbl=document.getElementById("resumeLabel");
-  if(lbl){ lbl.removeAttribute("for"); lbl.style.cursor="not-allowed"; lbl.onclick=function(e){e.preventDefault();}; }
-}
-
-/* On load: the fill-in form is the primary sign-up path, so open it right away.
-   If the person already has a profile, prefill it so this doubles as the editor.
-   Hide the owner-only resume path from visitors so they are not shown an error. */
+/* On load: require a signed-in account (the feed and profile are account-scoped),
+   then open the fill-in form. If the person already has a profile, prefill it so
+   this doubles as the editor. Resume upload is open to every signed-in account. */
 function openForm(){ document.getElementById("formPanel").classList.add("show"); }
-fetch(API+"/api/profile").then(r=>r.json()).then(d=>{
-  if(d && d.profile){ prefillForm(d.profile); }
+async function signOut(){
+  try{ await fetch(API+"/api/auth/logout",{method:"POST",credentials:"same-origin"}); }catch(e){}
+  location.replace("/signin");
+}
+(async function init(){
+  try{
+    const m = await fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
+    if(!m.signed_in){ location.replace("/signin"); return; }
+    const el=document.getElementById("acctEmail"); if(el) el.textContent = m.email || "";
+  }catch(e){ /* if me fails, the profile/feed calls still gate server-side */ }
+  try{
+    const d = await fetch(API+"/api/profile",{credentials:"same-origin"}).then(r=>r.json());
+    if(d && d.profile){ prefillForm(d.profile); }
+  }catch(e){}
   openForm();
-}).catch(()=>{ openForm(); });
-fetch(API+"/api/unlock/status").then(r=>r.json()).then(d=>{
-  if(d && !d.unlocked){ markResumeOwnerOnly(); }
-}).catch(()=>{});
+})();
 </script>
 </body>
 </html>

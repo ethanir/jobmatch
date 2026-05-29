@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sign in · Jobrolu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#0d1015; --card:#161b23; --card2:#1b212b; --ink:#f2f5f3; --ink2:#c3cbd2; --mut:#7e8a96;
+    --line:#262e39; --line2:#2e3742; --acc:#4fe39b; --acc2:#33c97f; --accdim:#16271e; --accln:#244e38;
+    --accglow:rgba(79,227,155,.16); --fd:'Fredoka',sans-serif; --fb:'Nunito',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--fb);-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 38px}
+  .brand{font-family:var(--fd);font-size:24px;font-weight:600;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink)}
+  .brand .mk{width:13px;height:13px;border-radius:99px;background:var(--acc);box-shadow:0 0 14px var(--acc)}
+  .nav-r a{font-size:15px;font-weight:600;color:var(--ink2);text-decoration:none}
+  .nav-r a:hover{color:var(--acc)}
+  .wrap{max-width:430px;margin:0 auto;padding:40px 22px 80px}
+  .head{text-align:center;margin-bottom:26px}
+  h1{font-family:var(--fd);font-weight:600;font-size:clamp(28px,4.6vw,38px);letter-spacing:-.02em;margin:0 0 10px}
+  .head p{font-size:15.5px;color:var(--ink2);margin:0;font-weight:500;line-height:1.5}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px}
+  label.fl{display:block;font-size:13px;font-weight:700;color:var(--ink2);margin:0 0 7px}
+  input.in{width:100%;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px 14px;color:var(--ink);font-family:var(--fb);font-size:15px;font-weight:600;outline:none;transition:border-color .15s;margin-bottom:16px}
+  input.in:focus{border-color:var(--accln)}
+  input.in::placeholder{color:var(--mut);font-weight:500}
+  .btn{font-family:var(--fd);font-size:16px;font-weight:600;border-radius:13px;padding:14px;cursor:pointer;border:none;width:100%;background:var(--acc);color:#08120c;box-shadow:0 6px 22px var(--accglow);transition:background .15s,opacity .15s}
+  .btn:hover{background:var(--acc2)}
+  .btn:disabled{opacity:.6;cursor:default}
+  .msg{font-size:13.5px;font-weight:700;margin-top:14px;min-height:17px;text-align:center;color:#e3804f}
+  .msg.ok{color:var(--acc)}
+  .toggle{text-align:center;margin-top:20px;font-size:14px;color:var(--mut);font-weight:600}
+  .toggle button{background:none;border:none;color:var(--acc);font-family:var(--fb);font-size:14px;font-weight:800;cursor:pointer;padding:0;margin-left:5px}
+  .hint{font-size:12px;color:var(--mut);margin:-8px 0 16px;font-weight:600}
+</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
+  <div class="nav-r"><a href="/">← Home</a></div>
+</nav>
+
+<div class="wrap">
+  <div class="head">
+    <h1 id="title">Welcome back.</h1>
+    <p id="subtitle">Sign in to see the jobs ranked for you.</p>
+  </div>
+
+  <div class="card">
+    <label class="fl" for="email">Email</label>
+    <input class="in" id="email" type="email" placeholder="you@example.com" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('pw').focus()"/>
+    <label class="fl" for="pw">Password</label>
+    <input class="in" id="pw" type="password" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAuth()"/>
+    <div class="hint" id="pwHint" style="display:none">At least 8 characters.</div>
+    <button class="btn" id="submitBtn" onclick="submitAuth()">Sign in →</button>
+    <div class="msg" id="msg"></div>
+    <div class="toggle" id="toggle">
+      <span id="toggleText">New to Jobrolu?</span>
+      <button id="toggleBtn" onclick="setMode(MODE==='login'?'register':'login')">Create an account</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
+let MODE = "login";
+let BUSY = false;
+
+function setMode(m){
+  MODE = m;
+  const reg = m === "register";
+  document.getElementById("title").textContent = reg ? "Create your account." : "Welcome back.";
+  document.getElementById("subtitle").textContent = reg
+    ? "It is free. Then build your profile and your feed unlocks."
+    : "Sign in to see the jobs ranked for you.";
+  document.getElementById("submitBtn").textContent = reg ? "Create account →" : "Sign in →";
+  document.getElementById("pw").setAttribute("autocomplete", reg ? "new-password" : "current-password");
+  document.getElementById("pwHint").style.display = reg ? "block" : "none";
+  document.getElementById("toggleText").textContent = reg ? "Already have an account?" : "New to Jobrolu?";
+  document.getElementById("toggleBtn").textContent = reg ? "Sign in" : "Create an account";
+  document.getElementById("msg").textContent = "";
+}
+
+async function submitAuth(){
+  if(BUSY) return;
+  const email = document.getElementById("email").value.trim();
+  const pw = document.getElementById("pw").value;
+  const msg = document.getElementById("msg");
+  if(!email || !pw){ msg.className="msg"; msg.textContent="Enter your email and password."; return; }
+  if(MODE==="register" && pw.length < 8){ msg.className="msg"; msg.textContent="Use a password of at least 8 characters."; return; }
+  const btn = document.getElementById("submitBtn");
+  BUSY = true; btn.disabled = true; const label = btn.textContent; btn.textContent = MODE==="register" ? "Creating..." : "Signing in...";
+  msg.className="msg"; msg.textContent="";
+  const path = MODE==="register" ? "/api/auth/register" : "/api/auth/login";
+  try{
+    const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({email,password:pw})});
+    const d = await r.json().catch(()=>({}));
+    if(r.ok && d.ok){
+      msg.className="msg ok"; msg.textContent = MODE==="register" ? "Account created. Taking you in..." : "Signed in. Taking you in...";
+      // New accounts go to build their profile; returning users go to the feed
+      // (the feed bounces to the profile page if they have not built one yet).
+      setTimeout(()=>{ location.replace(MODE==="register" ? "/start" : "/app"); }, 600);
+    }else{
+      BUSY=false; btn.disabled=false; btn.textContent=label;
+      msg.className="msg"; msg.textContent = d.error || "Something went wrong. Try again.";
+    }
+  }catch(e){
+    BUSY=false; btn.disabled=false; btn.textContent=label;
+    msg.className="msg"; msg.textContent="Can't reach the server. Try again.";
+  }
+}
+
+// If already signed in, skip straight to the app.
+fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+  if(d && d.signed_in){ location.replace("/app"); }
+}).catch(()=>{});
+
+// Allow /signin?new=1 to open directly in create-account mode.
+if(/[?&]new=1/.test(location.search)){ setMode("register"); }
+</script>
+</body>
+</html>

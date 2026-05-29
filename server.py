@@ -99,6 +99,7 @@ app.add_middleware(
 # Set ACCESS_CODE in the host's env; if it's unset, the gate is OFF (local dev).
 import hashlib as _hashlib
 import secrets as _secrets
+import hmac as _hmac
 
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
 # A per-process secret so the unlock cookie can't be guessed/forged. Set a fixed
@@ -123,6 +124,48 @@ def _is_unlocked(request):
 def _require_unlock(request):
     if not _is_unlocked(request):
         raise HTTPException(status_code=401, detail="locked")
+
+
+# ---------------------------------------------------------------- account sessions
+# A signed, stateless session cookie. Its value is "uid.signature" where the
+# signature is HMAC-SHA256(COOKIE_SECRET, uid); it cannot be forged without the
+# secret. Sign in sets it, sign out clears it, and the identity middleware reads
+# it to resolve the signed-in account.
+SESSION_COOKIE = "jr_session"
+_SESSION_MAX_AGE = 60 * 60 * 24 * 30   # 30 days
+
+
+def _session_sig(uid: str) -> str:
+    return _hmac.new(_COOKIE_SECRET.encode(), uid.encode(), _hashlib.sha256).hexdigest()
+
+
+def _make_session(uid: str) -> str:
+    return uid + "." + _session_sig(uid)
+
+
+def _read_session(request):
+    """Return the signed-in account id from a valid session cookie, or None."""
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw or "." not in raw:
+        return None
+    uid, sig = raw.rsplit(".", 1)
+    if uid and _secrets.compare_digest(sig, _session_sig(uid)):
+        return uid
+    return None
+
+
+def _signed_in(request) -> bool:
+    return bool(getattr(request.state, "signed_in", False))
+
+
+def _require_auth(request):
+    if not _signed_in(request):
+        raise HTTPException(status_code=401, detail="sign in required")
+
+
+def _valid_email(e) -> bool:
+    e = (e or "").strip()
+    return 3 < len(e) <= 254 and "@" in e and "." in e.split("@")[-1] and " " not in e
 
 
 # ---------------------------------------------------------------- browser identity
@@ -160,15 +203,20 @@ def _valid_uid(v) -> bool:
 
 @app.middleware("http")
 async def _identity(request: Request, call_next):
-    """Resolve (or mint) the browser id and stash it on request.state.user_id.
-    The Set-Cookie only goes out when we minted a fresh id, so returning visitors
-    are not re-cookied on every request."""
+    """Resolve the current user. A valid signed-in account session wins; otherwise
+    fall back to (or mint) the anonymous per-browser id. The jr_uid Set-Cookie only
+    goes out when we minted a fresh one, so returning visitors are not re-cookied."""
+    account = _read_session(request)
     uid = request.cookies.get(JR_UID_COOKIE)
     fresh = None
     if not _valid_uid(uid):
         uid = uuid.uuid4().hex
         fresh = uid
-    request.state.user_id = uid
+    # The account session is the identity when present; the browser id is the
+    # anonymous fallback and is what a new account adopts when it signs up.
+    request.state.signed_in = bool(account)
+    request.state.user_id = account or uid
+    request.state.browser_id = uid
     response = await call_next(request)
     if fresh:
         response.set_cookie(
@@ -476,37 +524,31 @@ def health():
 @app.get("/api/jobs")
 def list_jobs(request: Request, tier: str = "all"):
     user_id = request.state.user_id
-    # Best-effort: make sure this browser has a users row (Phase 2 identity).
-    # is_owner is set from the unlock cookie and is sticky (only ever promoted).
-    # This must never break the feed, so any DB error is swallowed.
+    # With no database (local/dev) there are no accounts or per-user profiles, so
+    # we serve the shared file feed rather than locking everyone out.
+    if not db.has_db():
+        data, source = _load(user_id, tier)
+        return {"source": source, "count": len(data), "jobs": data, "needs_auth": False, "needs_profile": False}
+    # Everyone is an account now. You must be signed in to see a feed, and you
+    # need a profile so it can be ranked for you.
+    if not _signed_in(request):
+        return {"source": "none", "count": 0, "jobs": [], "needs_auth": True, "needs_profile": False}
     try:
         with db.get_conn() as conn:
             if conn:
-                db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+                db.ensure_user(conn, user_id)
     except Exception:
         pass
-    if _is_unlocked(request):
-        # Owner: the AI-ranked feed (their Postgres rankings if any, else the
-        # shared file).
-        data, source = _load(user_id, tier)
-    else:
-        # Visitor. A profile is now required to see the feed, but only when a
-        # database exists to hold profiles. With no database (local/dev) there
-        # are no per-user profiles, so we keep serving the shared file feed
-        # rather than locking everyone out.
-        if not db.has_db():
-            data, source = _load(user_id, tier)
-            return {"source": source, "count": len(data), "jobs": data, "needs_profile": False}
-        prof = _user_profile(user_id)
-        if not prof:
-            return {"source": "none", "count": 0, "jobs": [], "needs_profile": True}
-        try:
-            data, source = _visitor_feed(user_id, prof, tier)
-        except Exception:
-            # A malformed profile should not expose the owner's feed; show an
-            # empty personalized feed rather than the shared sample.
-            data, source = [], "heuristic"
-    return {"source": source, "count": len(data), "jobs": data, "needs_profile": False}
+    prof = _user_profile(user_id)
+    if not prof:
+        return {"source": "none", "count": 0, "jobs": [], "needs_auth": False, "needs_profile": True}
+    try:
+        data, source = _visitor_feed(user_id, prof, tier)
+    except Exception:
+        # A malformed profile should never leak another feed; show an empty
+        # personalized feed rather than the shared sample.
+        data, source = [], "heuristic"
+    return {"source": source, "count": len(data), "jobs": data, "needs_auth": False, "needs_profile": False}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -692,11 +734,109 @@ async def do_unlock(request: Request):
     return JSONResponse({"ok": False, "error": "Incorrect code."}, status_code=403)
 
 
+# ---------------------------------------------------------------- accounts (auth)
+def _cookie_kw():
+    return dict(httponly=True, samesite="lax",
+                secure=os.environ.get("COOKIE_SECURE", "1") == "1")
+
+
+@app.get("/signin")
+def signin_page():
+    """The sign in / create account page."""
+    if os.path.exists("signin.html"):
+        return FileResponse("signin.html")
+    raise HTTPException(status_code=404, detail="no signin.html found")
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    """Who is signed in, for the nav and gating. Reads the (httponly) session."""
+    if not _signed_in(request):
+        return {"signed_in": False}
+    email = None
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                u = db.get_user(conn, request.state.user_id)
+                email = (u or {}).get("email")
+    except Exception:
+        email = None
+    return {"signed_in": True, "email": email}
+
+
+@app.post("/api/auth/register")
+async def auth_register(request: Request):
+    """Create an account. Reuses this browser's id, so any profile already built
+    is kept. Sets the session cookie on success."""
+    if not db.has_db():
+        return JSONResponse({"ok": False, "error": "Accounts are unavailable right now."}, status_code=503)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    if not _valid_email(email):
+        return JSONResponse({"ok": False, "error": "Enter a valid email address."}, status_code=400)
+    if len(password) < 8:
+        return JSONResponse({"ok": False, "error": "Use a password of at least 8 characters."}, status_code=400)
+    uid = request.state.browser_id      # upgrade THIS browser's anonymous identity
+    try:
+        with db.get_conn() as conn:
+            if not conn:
+                return JSONResponse({"ok": False, "error": "Accounts are unavailable right now."}, status_code=503)
+            db.ensure_user(conn, uid)
+            ok = db.set_account(conn, uid, email, db.hash_password(password))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Could not create the account. Try again."}, status_code=500)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "That email is already registered. Sign in instead."}, status_code=409)
+    resp = JSONResponse({"ok": True, "email": email})
+    resp.set_cookie(SESSION_COOKIE, _make_session(uid), max_age=_SESSION_MAX_AGE, **_cookie_kw())
+    return resp
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    """Verify email + password; on success set the session cookie to the account's
+    id (which may differ from this browser's anonymous id)."""
+    if not db.has_db():
+        return JSONResponse({"ok": False, "error": "Accounts are unavailable right now."}, status_code=503)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    acct = None
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                acct = db.get_account_by_email(conn, email)
+    except Exception:
+        acct = None
+    # One generic message whether the email is unknown or the password is wrong,
+    # so we never reveal which emails have accounts.
+    if not acct or not acct.get("password_hash") or not db.verify_password(password, acct["password_hash"]):
+        return JSONResponse({"ok": False, "error": "Wrong email or password."}, status_code=401)
+    resp = JSONResponse({"ok": True, "email": acct.get("email")})
+    resp.set_cookie(SESSION_COOKIE, _make_session(acct["id"]), max_age=_SESSION_MAX_AGE, **_cookie_kw())
+    return resp
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    """Clear the session cookie."""
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+
 @app.get("/api/profile")
 def read_profile(request: Request):
     """Return the current user's saved profile, or null if they have none yet,
-    so the onboarding UI can prefill. The owner falls back to the shared file so
-    their own profile prefills too; a fresh visitor gets null (a blank form)."""
+    so the onboarding UI can prefill. Whoever holds the refresh code falls back to
+    the shared file so it prefills too; everyone else gets null (a blank form)."""
     user_id = request.state.user_id
     prof = None
     if db.has_db():
@@ -721,11 +861,12 @@ def read_profile(request: Request):
 
 @app.post("/api/profile")
 async def save_profile(request: Request):
-    """Save a profile JSON. Each visitor saves THEIR OWN per-user profile (it is
-    free and only affects their own feed), so this is intentionally not
-    owner-gated. The shared my_profile.json that the paid pipeline reads is only
-    ever written by the owner (or in local dev with no Postgres), so a visitor
+    """Save the signed-in account's own profile. Free and only affects their own
+    feed. The shared my_profile.json that the paid pipeline reads is only written
+    by someone holding the refresh code (or in local dev), so a normal account
     can never overwrite it."""
+    if db.has_db():
+        _require_auth(request)
     try:
         data = await request.json()
     except Exception:
@@ -739,13 +880,13 @@ async def save_profile(request: Request):
             with db.get_conn() as conn:
                 if conn:
                     # users row must exist first: profiles.user_id references it
-                    db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+                    db.ensure_user(conn, user_id)
                     db.save_profile(conn, user_id, data)
                     saved = "db"
         except Exception:
             pass
-    # The owner (or local dev with no Postgres) also updates the shared file the
-    # pipeline reads, so the owner's edits flow into their next refresh.
+    # Whoever holds the refresh code (or local dev with no Postgres) also updates
+    # the shared file the pipeline reads, so their edits flow into the next refresh.
     if _is_unlocked(request) or not db.has_db():
         path = os.environ.get("PROFILE_PATH", "my_profile.json")
         try:
@@ -762,9 +903,11 @@ async def save_profile(request: Request):
 
 @app.post("/api/onboard")
 async def onboard_resume(request: Request, file: UploadFile = File(...)):
-    """Accept a resume upload, parse it into a profile, save it. Owner-only
-    (parsing spends the API budget and overwrites the shared profile)."""
-    _require_unlock(request)
+    """Accept a resume upload and parse it into a profile for review. Open to any
+    signed-in account (parsing is a small, cheap model call). The result is
+    returned for review and is not committed to the feed here."""
+    if db.has_db():
+        _require_auth(request)
     import tempfile
     suffix = os.path.splitext(file.filename or "")[1].lower() or ".txt"
     if suffix not in (".pdf", ".docx", ".txt", ".md"):
@@ -1007,7 +1150,7 @@ async def rank_import(request: Request):
         with db.get_conn() as conn:
             if not conn:
                 return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+            db.ensure_user(conn, user_id)
             for r in rankings[:RANK_IMPORT_MAX]:
                 jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
                 job = valid.get(jid)

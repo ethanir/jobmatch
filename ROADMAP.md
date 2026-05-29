@@ -4,7 +4,7 @@
 
 **Where the project stands, what's left, and how it ships.**
 
-![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-ongoing-orange) ![v3](https://img.shields.io/badge/v3%20launch-shipped-brightgreen) ![accounts](https://img.shields.io/badge/per--user%20accounts-live-brightgreen)
+![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-ongoing-orange) ![v3](https://img.shields.io/badge/v3%20launch-shipped-brightgreen) ![accounts](https://img.shields.io/badge/accounts%20%2B%20sign--in-live-brightgreen)
 
 </div>
 
@@ -58,7 +58,7 @@ That's the whole remaining plan. Everything else is polish.
 | ✅ | Hosted live feed - `server.py` + `app.html`: a Refresh button re-runs the pipeline in the background with a live progress bar; new roles append and are flagged, old roles persist. (This is the foundation the v3 hosted version builds on.) |
 | ✅ | Smart free pre-filter - sharp heuristic (exact-title, new-grad, SWE family, seniority penalty, location, recency, skill saturation) so the top-N forwarded to the LLM is quality, not look-alikes. |
 | ✅ | Bring-your-own-AI ranking - `export_rank.py` + `import_rank.py` rank your top batch for $0 using the free web Claude/ChatGPT, and the same flow is built into the app ("Rank with my AI"). |
-| ✅ | Per-user profiles + ranked feeds - sign up (form / resume / your own AI), then the shared pool is scored against your profile for $0 and your own verified rankings overlay it. Feed is profile-gated. |
+| ✅ | Accounts + per-user ranked feeds - create an account (email + password, hashed), build a profile (form / resume / your own AI), and the shared pool is scored against your profile for $0 with your own verified rankings overlaid. Sign in / sign out, Profile and Live Feed nav tabs, feed gated behind sign-in. |
 | ✅ | Durable pool + fast feed - each Refresh persists the pool to Postgres so redeploys never revert it; the feed caches it in memory and has live search plus clean empty states. |
 
 **Honest note on Apollo:** contact lookup is wired in, but Apollo's people-search API is gated behind their paid Organization tier (confirmed: free/trial keys return `API_INACCESSIBLE`). The tool detects this and falls back to the free LinkedIn flow automatically. **Do not pay for Apollo for this** - the volume need (a few recruiters) doesn't justify it; LinkedIn covers it free.
@@ -117,8 +117,8 @@ large-enterprise employers that were previously invisible.
 |---|---|---|
 | 4 | **Name + domain** | ✅ Done. **Jobrolu**, live at jobrolu.com. |
 | 5 | **Landing page** | ✅ Done. `landing.html`, dark single-screen, served at `/`. |
-| 6 | **Deploy the hosted app** | ✅ Done. Live on Railway at www.jobrolu.com, deployed from this repo. Per-user profiles gate the feed; the owner's paid Refresh sits behind a server-side access code, with a spend cap protecting the AI budget. |
-| 7 | **Per-user accounts** ✅ live | Postgres schema (Phase 1) and a per-browser identity + users row (Phase 2) are live. Per-user profiles and per-user ranked feeds (Phase 3) shipped: each visitor scores the shared pool against their own profile for $0, with their own verified rankings overlaid. The feed is **profile-gated**: you sign up first (a quick fill-in form, a resume, or your own AI), and only then does your feed unlock. **Bring-your-own-AI ranking is in the app**: "Rank with my AI" turns your top matches into verified fits using your own ChatGPT/Claude, stored as yours, for $0. The feed has live **search** and clean, context-aware empty states. The shared pool is now **durable**: each Refresh persists it to Postgres so a redeploy never reverts it, and the feed caches it in memory. Still optional later: per-user spend limits so the owner's paid actions could be opened to visitors. |
+| 6 | **Deploy the hosted app** | ✅ Done. Live on Railway at www.jobrolu.com, deployed from this repo. Accounts gate the feed; the budget-spending Refresh sits behind a server-side access code, with a spend cap protecting the AI budget. |
+| 7 | **Accounts** ✅ live | Real email + password accounts (PBKDF2-hashed, signed session cookies), with **sign in / sign out** and **Profile / Live Feed nav tabs**. There is no owner tier: everyone is an equal account, everyone can use resume upload and bring-your-own-AI ranking, and there is no rate limiting. The feed is gated behind being signed in and having a profile. **Bring-your-own-AI ranking** ("Rank with my AI", with a slider for how many jobs to send) turns your top matches into verified fits using your own ChatGPT/Claude, stored as yours, for $0. The feed has live **search**, clean empty states, and a per-profile scored cache so it loads fast. The shared pool is **durable** (persisted to Postgres). The only budget-spending action, **Refresh**, is visible to everyone but runs only with the access code. |
 
 ### Naming: settled
 The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlist, Rolescout, Fitscore, Rolu) are kept here only as history.

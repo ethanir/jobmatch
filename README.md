@@ -22,7 +22,7 @@ Most job tools either autofill the same form a hundred times, or dump a feed of 
 
 Jobrolu runs the search the way it actually works: **aggregate** from clean sources, **rank** every role honestly against a real profile, and **hand you the recruiter** to email with a personalized draft. You always do the final send. No spammy auto-apply, no hallucinated matches.
 
-**You sign up first.** Jobrolu ranks against *you*, so it starts by taking your profile (a quick form, a resume, or your own AI), then unlocks a feed of the live job pool ranked for you. Each person gets their own profile and their own ranked feed.
+**You make an account first.** Jobrolu ranks against *you*, so you sign up, build a profile (a quick form, a resume, or your own AI), and a feed of the live job pool ranked for you unlocks. Everyone has an equal account; each person gets their own profile and their own ranked feed.
 
 ---
 
@@ -95,7 +95,7 @@ So a green `88` with "AI verified" is a real judgment. A grey `~78` with "Estima
 
 Only the top N jobs get AI-read, and at free-scoring time most jobs are ranked on their **title** alone, since full descriptions are only fetched for the jobs about to be AI-read. So a genuinely good role with a plain or unusual title can sit just outside the cutoff and stay an estimate. Three ways to verify deeper:
 
-- **The scan-depth slider** (in the app, owner-only). After unlocking, a slider sets how many top roles the AI reads on the next refresh, and shows a live estimate of the cost, time, and likely strong matches before you run. This is the main lever, and it is exactly what reaches the good roles a title-only score under-rated.
+- **The scan-depth slider** (in the app). A slider sets how many top roles the AI reads on the next refresh, and shows a live estimate of the cost, time, and likely strong matches before you run. Running a refresh needs the access code, but the slider and estimate are visible to everyone. This is the main lever, and it is exactly what reaches the good roles a title-only score under-rated.
 - **`TOP_N`** for command-line runs (see the cost model below).
 - **Bring-your-own-AI, right in the app.** On a personalized feed, "Rank with my AI" hands you a ready-made prompt to paste into your own ChatGPT or Claude; paste the JSON back and your top matches become verified fits, stored as yours, for **$0**. (The `export_rank.py` / `import_rank.py` CLI does the same from the command line.)
 
@@ -120,15 +120,15 @@ Resume parsing on profile upload is one small LLM call (cents). Outreach drafts 
 
 ---
 
-## 🔐 Access and budget protection
+## 🔐 Accounts and budget protection
 
-Each person gets their own profile and their own ranked feed. The model is simple:
+Everyone has an equal account; there is no special owner tier. The model is simple:
 
-- **You sign up first.** Building a profile (a quick form, a resume upload, or letting your own AI describe you) is what unlocks the feed. Without a profile you are sent to sign up, so nobody lands on a wall of unranked jobs or sees someone else's scores.
+- **Create an account, then build a profile.** Sign up with an email and password, then build your profile (a quick form, a resume upload, or letting your own AI describe you). The feed is gated: you must be signed in, and you need a profile, so nobody lands on a wall of unranked jobs or sees someone else's scores.
+- **Sign in and sign out.** Passwords are hashed (PBKDF2-HMAC-SHA256, stdlib, no extra dependency) with a per-user salt and verified in constant time; the session is a signed, HttpOnly cookie. Building a profile before signing up is preserved, since an account reuses the browser's id.
 - **Your feed is yours.** Once you have a profile, you see the shared job pool ranked for *you* by the free heuristic, plus any roles you have personally verified. New jobs show as estimates until you verify them.
-- **Verifying is free for you.** "Rank with my AI" lets you turn your top matches into verified fits using your own ChatGPT or Claude, at no cost. Those verified rankings are stored against your profile and overlay your feed.
-- **Refreshing the shared pool is owner-only.** Re-running the full pipeline is the only action that spends the owner's API budget, so it sits behind the access code. Click **Unlock**, enter the code, and Refresh (plus the single-role scan) activates. The unlock is sticky per browser.
-- **A spend cap** set in the Anthropic console is the hard ceiling on the owner's budget.
+- **Verifying is free for everyone.** "Rank with my AI" turns your top matches into verified fits using your own ChatGPT or Claude, at no cost, with a slider for how many to send. Those verified rankings are stored against your profile and overlay your feed. Resume upload is open to every signed-in account.
+- **Refresh is the one budget-spending action.** The Refresh button is visible to everyone, but re-running the full pipeline spends the deployment's API budget, so it stays behind the access code: click Refresh, enter the code once, and it runs. The single-role scan is gated the same way. A spend cap in the Anthropic console is the hard ceiling.
 - **The shared pool is durable.** Each Refresh writes the resulting pool to Postgres, not just the host's disk, so a redeploy never reverts it. The feed reads the pool from Postgres (falling back to the committed file when the database is empty or off) and caches it in memory, so it is not re-parsed on every request.
 
 Configure on the host (Railway) with env vars:
@@ -136,10 +136,9 @@ Configure on the host (Railway) with env vars:
 | Variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | Required, powers ranking and drafts |
-| `ACCESS_CODE` | The owner unlock code (gate is off if unset) |
-| `COOKIE_SECRET` | Fixed random string so the unlock survives redeploys |
-| `DATABASE_URL` | Postgres for per-user profiles, per-user rankings, and the durable shared job pool (with no database set, the site serves the committed file feed and skips the profile gate, for local dev) |
-| `OWNER_USER_ID` | Optional. A long random id so the owner is one identity across devices |
+| `ACCESS_CODE` | The code required to run a Refresh (and scan); the Refresh button is visible to all, but only runs with this. Refresh is open to anyone if unset |
+| `COOKIE_SECRET` | Fixed random string so sessions and the refresh unlock survive redeploys |
+| `DATABASE_URL` | Postgres for accounts, per-user profiles, per-user rankings, and the durable shared job pool (with no database set, the site serves the committed file feed and skips accounts, for local dev) |
 | `DB_POOL_MAX` | Optional. Max pooled DB connections (default 10) |
 
 API keys live only in the host's private environment, never in this repo.
@@ -197,9 +196,10 @@ jobrolu/
 ├── make_ui.py       bake ranked_jobs.json -> standalone viewer.html
 ├── db.py            Postgres per-user layer: users, profiles, rankings, usage, durable job pool (pooled, self-healing)
 ├── landing.html     marketing landing page (served at /)
-├── start.html       sign up: build your profile (form, resume, or bring-your-own-AI)
-├── app.html         hosted live feed (profile-gated): your ranked feed, filter, verify, refresh, outreach
-├── server.py        FastAPI: pages + /api/* (per-user profiles + feeds, owner-gated refresh)
+├── signin.html      create account / sign in
+├── start.html       Profile tab: build or edit your profile (form, resume, or bring-your-own-AI)
+├── app.html         Live Feed tab (sign-in + profile gated): your ranked feed, search, verify, refresh, outreach
+├── server.py        FastAPI: pages + /api/* (accounts, per-user profiles + feeds, code-gated refresh)
 ├── prompts.py       profile schema + all LLM prompts (the heart)
 └── BUILD_SPEC.md    full spec, anyone can rebuild the product from it
 ```
