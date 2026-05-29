@@ -33,6 +33,7 @@ import json
 import os
 import threading
 import time
+from urllib.parse import quote
 import uuid
 from typing import Optional
 
@@ -106,6 +107,18 @@ ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
 # COOKIE_SECRET in env to keep people unlocked across redeploys.
 _COOKIE_SECRET = os.environ.get("COOKIE_SECRET", _secrets.token_hex(16))
 
+# ---------------------------------------------------------------- billing config
+# A single one-time lifetime upgrade, sold through a Stripe Payment Link (no-code,
+# created in the Stripe dashboard). The server makes NO outbound calls to Stripe:
+# it only appends the account id to the link so the webhook can map the payment
+# back, and verifies the signed webhook Stripe sends after a successful payment.
+# PLAN_PRO_NAME is the display name; change it in one place to rename the tier.
+STRIPE_PAYMENT_LINK = os.environ.get("STRIPE_PAYMENT_LINK", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+PRO_PRICE_LABEL = os.environ.get("PRO_PRICE_LABEL", "$1.99").strip()
+PLAN_PRO_NAME = os.environ.get("PLAN_PRO_NAME", "Pro").strip()
+_WEBHOOK_TOLERANCE = 300   # seconds; reject webhooks whose timestamp is older (replay guard)
+
 
 def _valid_token():
     """The cookie value a correctly-unlocked client should carry."""
@@ -166,6 +179,85 @@ def _require_auth(request):
 def _valid_email(e) -> bool:
     e = (e or "").strip()
     return 3 < len(e) <= 254 and "@" in e and "." in e.split("@")[-1] and " " not in e
+
+
+# ---------------------------------------------------------------- plan / pro gating
+def _user_plan(user_id) -> str:
+    """This user's plan ('free' or 'pro') from the database. Free when there is no
+    database (local dev) or on any read error."""
+    if not db.has_db():
+        return "free"
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                return db.get_plan(conn, user_id) or "free"
+    except Exception:
+        pass
+    return "free"
+
+
+def _is_pro(request) -> bool:
+    """Whether this request may use the paid AI features. The owner (a valid unlock
+    cookie, or the configured OWNER_USER_ID) always qualifies; otherwise the user's
+    stored plan must be 'pro'."""
+    if _is_unlocked(request):
+        return True
+    uid = getattr(request.state, "user_id", None)
+    if OWNER_USER_ID and uid == OWNER_USER_ID:
+        return True
+    return _user_plan(uid) == "pro"
+
+
+def _pro_gate(request):
+    """Return an upgrade response dict if this request is NOT entitled to a paid
+    feature, else None. Billing only applies when a database is configured, so
+    local/dev (no db) is never gated."""
+    if not db.has_db():
+        return None
+    if _is_pro(request):
+        return None
+    return {"ok": False, "upgrade": True,
+            "error": ("This is a " + PLAN_PRO_NAME + " feature. Unlock it for life for "
+                      + PRO_PRICE_LABEL + ".")}
+
+
+def _verify_stripe_event(payload: bytes, sig_header: str, secret: str, tolerance: int = _WEBHOOK_TOLERANCE):
+    """Verify a Stripe webhook signature WITHOUT the stripe library, following the
+    documented scheme: signed_payload = '<t>.' + raw_body, HMAC-SHA256 keyed on the
+    whsec signing secret, hex-encoded, constant-time compared against the v1
+    signature(s) in the Stripe-Signature header, with a replay window on the
+    timestamp. Returns the parsed event dict, or None if anything is off.
+
+    The payload MUST be the exact raw request bytes; a re-serialized body breaks
+    the signature."""
+    if not payload or not sig_header or not secret:
+        return None
+    ts = None
+    v1s = []
+    for part in sig_header.split(","):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if k == "t":
+            ts = v
+        elif k == "v1":
+            v1s.append(v)
+    if not ts or not v1s:
+        return None
+    try:
+        if tolerance and abs(time.time() - int(ts)) > tolerance:
+            return None
+    except Exception:
+        return None
+    signed = ts.encode("utf-8") + b"." + payload
+    expected = _hmac.new(secret.encode("utf-8"), signed, _hashlib.sha256).hexdigest()
+    if not any(_secrets.compare_digest(expected, s) for s in v1s):
+        return None
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------- browser identity
@@ -913,7 +1005,10 @@ def auth_me(request: Request):
                 email = (u or {}).get("email")
     except Exception:
         email = None
-    return {"signed_in": True, "email": email}
+    pro = _is_pro(request)
+    return {"signed_in": True, "email": email,
+            "is_pro": pro, "plan": ("pro" if pro else "free"),
+            "plan_name": PLAN_PRO_NAME, "price": PRO_PRICE_LABEL}
 
 
 @app.post("/api/auth/register")
@@ -992,6 +1087,82 @@ def auth_logout():
     return resp
 
 
+# ---------------------------------------------------------------- billing
+@app.get("/api/billing/status")
+def billing_status(request: Request):
+    """What the UI needs to render the plan badge and the upgrade flow: the current
+    plan, whether billing is configured, and (only for a signed-in free user) the
+    Stripe checkout URL with their account id attached so the webhook can map the
+    payment back to them. The account id (a uuid hex) is a valid client_reference_id."""
+    uid = request.state.user_id
+    pro = _is_pro(request)
+    signed_in = _signed_in(request)
+    configured = bool(STRIPE_PAYMENT_LINK)
+    checkout_url = ""
+    if configured and signed_in and not pro:
+        sep = "&" if "?" in STRIPE_PAYMENT_LINK else "?"
+        checkout_url = STRIPE_PAYMENT_LINK + sep + "client_reference_id=" + quote(uid, safe="")
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    u = db.get_user(conn, uid)
+                    em = (u or {}).get("email")
+                    if em:
+                        checkout_url += "&prefilled_email=" + quote(em, safe="")
+        except Exception:
+            pass
+    return {"ok": True, "plan": ("pro" if pro else "free"), "is_pro": pro,
+            "plan_name": PLAN_PRO_NAME, "price": PRO_PRICE_LABEL,
+            "configured": configured, "signed_in": signed_in,
+            "checkout_url": checkout_url}
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    """Stripe calls this after a successful payment. We verify the signature, then
+    grant the buyer the lifetime plan. The webhook is the SOURCE OF TRUTH for who
+    has paid; the browser redirect alone is never trusted. Idempotent: a duplicate
+    or retried event for the same Checkout Session is a no-op.
+
+    Status codes matter to Stripe: 400 on a bad signature, 5xx on a transient error
+    (so Stripe retries), 200 once handled (so it stops)."""
+    raw = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    if not STRIPE_WEBHOOK_SECRET:
+        # Not configured yet: 200 so Stripe does not retry forever during setup.
+        return JSONResponse({"ok": False, "error": "billing not configured"}, status_code=200)
+    event = _verify_stripe_event(raw, sig, STRIPE_WEBHOOK_SECRET)
+    if event is None:
+        return JSONResponse({"ok": False, "error": "invalid signature"}, status_code=400)
+    etype = event.get("type")
+    if etype not in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        return {"ok": True, "ignored": etype}
+    session = (event.get("data") or {}).get("object") or {}
+    if session.get("payment_status") not in ("paid", "no_payment_required"):
+        return {"ok": True, "pending": True}
+    session_id = (session.get("id") or "").strip()
+    cref = (session.get("client_reference_id") or "").strip()
+    email = (((session.get("customer_details") or {}).get("email"))
+             or session.get("customer_email") or "").strip()
+    if not db.has_db():
+        return JSONResponse({"ok": False, "error": "db unavailable"}, status_code=500)
+    try:
+        with db.get_conn() as conn:
+            if not conn:
+                return JSONResponse({"ok": False, "error": "db unavailable"}, status_code=500)
+            if session_id and db.was_session_processed(conn, session_id):
+                return {"ok": True, "already": True}
+            granted = False
+            if cref:
+                db.ensure_user(conn, cref)
+                granted = db.set_plan(conn, cref, "pro", session_id or None)
+            if not granted and email:
+                granted = bool(db.set_plan_by_email(conn, email, "pro", session_id or None))
+            return {"ok": True, "granted": granted}
+    except Exception:
+        return JSONResponse({"ok": False, "error": "could not record payment"}, status_code=500)
+
+
 @app.get("/api/profile")
 def read_profile(request: Request):
     """Return the current user's saved profile, or null if they have none yet,
@@ -1066,11 +1237,14 @@ async def save_profile(request: Request):
 
 @app.post("/api/onboard")
 async def onboard_resume(request: Request, file: UploadFile = File(...)):
-    """Accept a resume upload and parse it into a profile for review. Open to any
-    signed-in account (parsing is a small, cheap model call). The result is
-    returned for review and is not committed to the feed here."""
+    """Accept a resume upload and parse it into a profile for review. A Pro
+    feature (gated below): resume parsing is one of the paid unlocks. The parsed
+    result is returned for review and is not committed to the feed here."""
     if db.has_db():
         _require_auth(request)
+    gate = _pro_gate(request)
+    if gate:
+        return gate
     import tempfile
     suffix = os.path.splitext(file.filename or "")[1].lower() or ".txt"
     if suffix not in (".pdf", ".docx", ".txt", ".md"):
@@ -1432,9 +1606,14 @@ def _sanitize_fit(r):
 @app.get("/api/rank/byo")
 def rank_export(request: Request, n: int = RANK_EXPORT_MAX):
     """Return a ready-to-paste prompt (and the jobs it covers) so the current
-    user can rank their top jobs with their own AI for free. `n` lets the user
-    pick how many to send (clamped to a sane range). Needs a profile."""
+    user can rank their top jobs with their own AI. A Pro feature (gated below);
+    the ranking itself costs Jobrolu nothing because it runs on the user's own
+    AI. `n` lets the user pick how many to send (clamped to a sane range). Needs
+    a profile."""
     user_id = request.state.user_id
+    gate = _pro_gate(request)
+    if gate:
+        return gate
     profile = _user_profile(user_id)
     if not profile:
         return {"ok": False, "error": "Build a profile first, then you can rank your matches."}
@@ -1454,12 +1633,15 @@ def rank_export(request: Request, n: int = RANK_EXPORT_MAX):
 @app.post("/api/rank/byo")
 async def rank_import(request: Request):
     """Accept the JSON array the user's AI returned, validate it, and store the
-    rankings as THEIRS (ranked_by 'ai_byoai'). Free, so it is open to visitors;
-    every field is sanitized because this is untrusted input. The stored
-    rankings then overlay this user's feed automatically."""
+    rankings as THEIRS (ranked_by 'ai_byoai'). A Pro feature (gated below); every
+    field is sanitized because this is untrusted input. The stored rankings then
+    overlay this user's feed automatically."""
     if not db.has_db():
         return {"ok": False, "error": "Saved rankings need the database, which is off right now."}
     user_id = request.state.user_id
+    gate = _pro_gate(request)
+    if gate:
+        return gate
     profile = _user_profile(user_id)
     if not profile:
         return {"ok": False, "error": "Build a profile first, then you can rank your matches."}

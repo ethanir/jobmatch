@@ -152,6 +152,36 @@ API keys live only in the host's private environment, never in this repo.
 
 ---
 
+## 💳 Plans: free and Pro
+
+Two tiers, with a single one-time payment (no subscription).
+
+- **Free.** The live feed of sourced roles, each given a quick heuristic score against the user's profile. Free users can build their profile by filling in the fields by hand. Scores show with a `~` because they are keyword estimates, not an AI read.
+- **Pro (one-time, lifetime).** Unlocks the AI features: **Rank my matches** (the user's own ChatGPT or Claude reads each top role in full and re-ranks the feed by true fit), **resume upload** (drop a PDF and the profile is built automatically), and **building the profile with your own AI**. Priced at `$1.99` for life by default.
+
+The price label and the tier name are both env-configurable in one place: `PRO_PRICE_LABEL` (default `$1.99`) and `PLAN_PRO_NAME` (default `Pro`). Changing `PLAN_PRO_NAME` renames the tier everywhere in the UI, because the name flows from the server to the badge and the upgrade modal.
+
+### How the payment works (Stripe)
+
+A single one-time lifetime upgrade sold through a **Stripe Payment Link** (no-code, hosted by Stripe). The flow:
+
+1. A signed-in free user clicks **Upgrade**. The server hands back the payment link with the user's account id appended as `client_reference_id` (and their email prefilled). That id is set by us and cannot be edited on the Stripe page, so it reliably identifies the buyer.
+2. The user pays on Stripe's hosted page and is redirected back to `/app?upgraded=1`, where the page polls until the plan flips to Pro.
+3. **The webhook is the source of truth.** Stripe POSTs `checkout.session.completed` to `/api/billing/webhook`; the server verifies the signature (HMAC-SHA256 over `t.payload` with the signing secret, with a replay window), confirms the payment, and grants the plan. The browser redirect alone is never trusted.
+
+It is safe against the usual failure modes: the signature check rejects forged calls; processing is idempotent (a Checkout Session that already granted a plan is a no-op, so retried or duplicated webhooks are harmless and a session id cannot grant a second account); if `client_reference_id` is somehow missing, it falls back to granting by the paid email; and billing only applies when a database is configured, so local dev is never gated. The owner is always treated as Pro.
+
+The gate is enforced **on the server**, not just hidden in the UI: `/api/onboard` (resume), `GET /api/rank/byo` (the prompt), and `POST /api/rank/byo` (saving the ranking) all return an upgrade response for a free user, so the paid features cannot be reached by calling the API directly.
+
+### To make it live (config, not code)
+
+1. In Stripe, create a product with a one-time `$1.99` price and a **Payment Link** for it.
+2. In the link's settings, set the post-payment redirect to `https://jobrolu.com/app?upgraded=1` (no Stripe confirmation page).
+3. In Stripe &rarr; Developers &rarr; Webhooks, add the endpoint `https://jobrolu.com/api/billing/webhook` subscribed to `checkout.session.completed`, and copy its signing secret.
+4. Set the Railway env vars `STRIPE_PAYMENT_LINK` (the link URL) and `STRIPE_WEBHOOK_SECRET` (the `whsec_...` value). Optionally set `PLAN_PRO_NAME` and `PRO_PRICE_LABEL`.
+
+Until those env vars are set, the upgrade button shows "checkout is not set up yet" and nothing is gated in a broken way.
+
 ## 📡 Sources and coverage
 
 Live roles are pulled in parallel from **7 ATS platforms** (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Workday) plus the **Adzuna** keyword aggregator and curated new-grad lists.

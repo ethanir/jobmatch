@@ -36,6 +36,20 @@
   .acct-email{font-family:var(--fu);font-size:12.5px;color:var(--mut);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .signout{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s}
   .signout:hover{border-color:var(--greenln);color:var(--green)}
+  .plan-pill{font-family:var(--fu);font-size:12px;font-weight:800;letter-spacing:.02em;border-radius:999px;padding:5px 11px;cursor:pointer;border:1px solid var(--line2);color:var(--ink2);background:none;transition:border-color .15s,color .15s;white-space:nowrap}
+  .plan-pill:hover{border-color:var(--greenln);color:var(--green)}
+  .plan-pill.pro{color:var(--green);border-color:var(--greenln);background:var(--greenbg);cursor:default}
+  .plan-pill.pro:hover{color:var(--green)}
+  .up-hero{display:flex;align-items:baseline;gap:8px;margin:2px 0 4px}
+  .up-price{font-family:var(--fd);font-size:34px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+  .up-once{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--green)}
+  .up-list{list-style:none;padding:0;margin:16px 0 4px;display:flex;flex-direction:column;gap:11px}
+  .up-list li{display:flex;gap:10px;align-items:flex-start;font-family:var(--fu);font-size:13.5px;color:var(--ink2);line-height:1.4}
+  .up-list li b{color:var(--ink);font-weight:800}
+  .up-tick{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:var(--greenbg);border:1px solid var(--greenln);color:var(--green);display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .up-note{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:13px;line-height:1.5}
+  .fbar-btn.lock{background:none;color:var(--green);border:1px solid var(--greenln)}
+  .fbar-btn.lock:hover{background:var(--greenbg);opacity:1}
   /* unlock control */
   .lockbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:10px 15px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
   .lockbtn:hover{border-color:var(--green);color:var(--green)}
@@ -275,6 +289,7 @@
     </div>
     <div class="right">
       <span class="meta" id="meta"></span>
+      <button class="plan-pill" id="planPill" onclick="openUpgrade()" style="display:none"></button>
       <div class="acct">
         <span class="acct-email" id="acctEmail"></span>
         <button class="signout" onclick="signOut()">Sign out</button>
@@ -329,12 +344,33 @@
   </div>
 </div>
 
+<!-- upgrade to Pro: one-time lifetime unlock -->
+<div class="modal-bg" id="upBg" onclick="if(event.target===this)closeUpgrade()">
+  <div class="modal" style="position:relative">
+    <button class="modal-x" onclick="closeUpgrade()" aria-label="close">×</button>
+    <h2 id="upTitle">Unlock Jobrolu Pro</h2>
+    <div class="up-hero"><span class="up-price" id="upPrice">$1.99</span><span class="up-once">one time &middot; yours for life</span></div>
+    <p>Your free feed scores every role with a quick keyword match. Pro turns on the real thing: your own AI reads each posting in full and ranks your matches by true fit.</p>
+    <ul class="up-list">
+      <li><span class="up-tick">✓</span><span><b>Rank my matches.</b> Your own ChatGPT or Claude reads your top roles end to end and re-ranks your feed by genuine fit, not keywords.</span></li>
+      <li><span class="up-tick">✓</span><span><b>Upload your resume.</b> Drop in a PDF and Jobrolu builds your structured profile automatically.</span></li>
+      <li><span class="up-tick">✓</span><span><b>Build your profile with your own AI.</b> Skip the form entirely.</span></li>
+      <li><span class="up-tick">✓</span><span><b>Pay once.</b> No subscription. Lifetime access to ranking the jobs in your feed.</span></li>
+    </ul>
+    <button class="modal-btn" id="upBtn" onclick="startCheckout()">Unlock for life &middot; <span id="upBtnPrice">$1.99</span> →</button>
+    <p class="up-note" id="upNote">Secure checkout by Stripe. After paying you will come back here and Pro unlocks automatically.</p>
+    <div class="modal-msg" id="upMsg"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
 let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "", PAGE = 1;
 const PAGE_SIZE = 60;
+// Billing / plan state, populated by loadMe() from /api/auth/me.
+let IS_PRO = false, PLAN_NAME = "Pro", PRICE = "$1.99";
 
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
@@ -421,15 +457,24 @@ function renderRankBanner(){
   const un = JOBS.filter(j=>!verified(j)).length;
   const check='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   const refresh='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+  const lock='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
   // Verify: confirm what's already in your feed, free. Detail lives in the tooltip.
-  const vTip = "Have your own ChatGPT or Claude confirm your top matches in full, for free. It reads roles you already have, it does not pull new ones.";
+  const vTip = "Your own ChatGPT or Claude reads your top roles in full and re-ranks them by true fit. It reads roles you already have, it does not pull new ones.";
+  const lockTip = "Pro: your own AI reads each role end to end and ranks your matches by genuine fit, for life.";
   let verify;
-  if(un > 0){
+  if(!IS_PRO){
+    verify =
+      '<div class="fbar-item verify" title="'+lockTip+'">'+
+        '<span class="fbar-ic">'+lock+'</span>'+
+        '<span class="fbar-tx"><b>Rank my matches</b> &middot; your AI reads each role in full</span>'+
+        '<button class="fbar-btn" onclick="openUpgrade()">Unlock for life &middot; '+esc(PRICE)+'</button>'+
+      '</div>';
+  } else if(un > 0){
     verify =
       '<div class="fbar-item verify" title="'+vTip+'">'+
         '<span class="fbar-ic">'+check+'</span>'+
         '<span class="fbar-tx"><b>'+un+'</b> on estimates</span>'+
-        '<button class="fbar-btn" onclick="openRank()">Rank my matches</button>'+
+        '<button class="fbar-btn" onclick="openRank()">Rank my matches →</button>'+
       '</div>';
   } else {
     verify =
@@ -487,6 +532,7 @@ function tickScan(){
 
 const RANK_CAP = 150;
 function openRank(){
+  if(!IS_PRO){ openUpgrade(); return; }
   document.getElementById("rankBg").classList.add("show");
   document.getElementById("rankMsg").textContent = "";
   document.getElementById("rankIn").value = "";
@@ -707,7 +753,67 @@ async function loadMe(){
     const m = await fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
     if(!m.signed_in){ location.replace("/signin"); return; }
     const el=document.getElementById("acctEmail"); if(el) el.textContent = m.email || "";
+    IS_PRO = !!m.is_pro;
+    if(m.plan_name) PLAN_NAME = m.plan_name;
+    if(m.price) PRICE = m.price;
+    renderPill();
+    renderRankBanner();
   }catch(e){ /* if this fails, loadJobs still gates on needs_auth */ }
+}
+function renderPill(){
+  const p=document.getElementById("planPill"); if(!p) return;
+  p.style.display="";
+  if(IS_PRO){ p.className="plan-pill pro"; p.textContent=PLAN_NAME; p.onclick=null; }
+  else{ p.className="plan-pill"; p.textContent="Free \u00b7 Upgrade"; p.onclick=openUpgrade; }
+}
+
+/* Upgrade to Pro. The button redirects to a Stripe Payment Link (with this
+   account id attached so the webhook maps the payment back); Pro then unlocks the
+   moment Stripe's webhook lands, which we confirm by polling on return. */
+function openUpgrade(){
+  if(IS_PRO) return;
+  document.getElementById("upPrice").textContent = PRICE;
+  document.getElementById("upBtnPrice").textContent = PRICE;
+  document.getElementById("upTitle").textContent = "Unlock Jobrolu "+PLAN_NAME;
+  const msg=document.getElementById("upMsg"); msg.className="modal-msg"; msg.textContent="";
+  const btn=document.getElementById("upBtn"); btn.disabled=false;
+  document.getElementById("upBg").classList.add("show");
+  fetch(API+"/api/billing/status",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+    if(d.is_pro){ IS_PRO=true; renderPill(); renderRankBanner(); closeUpgrade(); toast("You're "+PLAN_NAME+" \u2713"); return; }
+    if(!d.configured){
+      btn.disabled=true;
+      document.getElementById("upNote").textContent = "Checkout is not set up yet. Please check back shortly.";
+      return;
+    }
+    CHECKOUT_URL = d.checkout_url || "";
+    if(!CHECKOUT_URL){ btn.disabled=true; msg.className="modal-msg"; msg.textContent="Sign in to upgrade."; }
+  }).catch(()=>{ msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+}
+let CHECKOUT_URL = "";
+function closeUpgrade(){ document.getElementById("upBg").classList.remove("show"); }
+function startCheckout(){
+  if(!CHECKOUT_URL){ const msg=document.getElementById("upMsg"); msg.className="modal-msg"; msg.textContent="Checkout link unavailable. Try again."; return; }
+  const btn=document.getElementById("upBtn"); btn.disabled=true; btn.textContent="Opening secure checkout\u2026";
+  window.location.href = CHECKOUT_URL;
+}
+/* Returned from Stripe (?upgraded=1): confirm the webhook landed, then unlock. */
+function pollUpgrade(){
+  let tries=0;
+  toast("Confirming your upgrade\u2026");
+  const iv=setInterval(function(){
+    tries++;
+    fetch(API+"/api/billing/status",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+      if(d.is_pro){
+        clearInterval(iv);
+        IS_PRO=true; renderPill(); renderRankBanner();
+        toast("You're "+PLAN_NAME+"! Rank my matches is unlocked.");
+        loadJobs();
+      } else if(tries>=12){
+        clearInterval(iv);
+        toast("Payment received. If Pro hasn't unlocked, refresh in a minute.");
+      }
+    }).catch(()=>{ if(tries>=12) clearInterval(iv); });
+  }, 2000);
 }
 async function signOut(){
   try{ await fetch(API+"/api/auth/logout",{method:"POST",credentials:"same-origin"}); }catch(e){}
@@ -717,6 +823,11 @@ async function signOut(){
 fetchSchedule();
 loadMe();
 loadJobs();
+// Returned from Stripe checkout: confirm the upgrade landed, then clean the URL.
+if(/[?&]upgraded=1/.test(location.search)){
+  try{ history.replaceState({}, "", location.pathname); }catch(e){}
+  pollUpgrade();
+}
 </script>
 </body>
 </html>

@@ -78,6 +78,13 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email         TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
+-- Plan / billing (one-time lifetime upgrade via Stripe). plan is 'free' or 'pro';
+-- plan_since records the first upgrade; stripe_session_id is the Checkout Session
+-- that granted it, used to make webhook processing idempotent.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan              TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_since        TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
+
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users (LOWER(email)) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -363,6 +370,66 @@ def set_account(conn, user_id: str, email: str, password_hash: str) -> bool:
         )
     conn.commit()
     return True
+
+
+# ---------------------------------------------------------------- plans / billing
+# A one-time lifetime upgrade. 'free' is the default; 'pro' unlocks the AI
+# features (resume parsing, bring-your-own-AI profile, and Rank my matches). The
+# Stripe webhook is the source of truth and calls set_plan; everything here is
+# idempotent so a retried or duplicated webhook is harmless.
+def get_plan(conn, user_id: str) -> str:
+    """This user's plan, 'free' or 'pro'. Unknown users / no row default to free."""
+    if not conn or not user_id:
+        return "free"
+    with conn.cursor() as cur:
+        cur.execute("SELECT plan FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+        plan = (row or {}).get("plan") if row else None
+        return plan or "free"
+
+
+def set_plan(conn, user_id: str, plan: str = "pro", session_id: Optional[str] = None) -> bool:
+    """Set a user's plan. Idempotent: plan_since keeps the FIRST upgrade time, and
+    stripe_session_id is only filled if not already set. Returns True if a row was
+    updated (the user existed). The caller should ensure_user first if needed."""
+    if not conn or not user_id or not plan:
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE users SET plan = %s, "
+            "  plan_since = COALESCE(plan_since, NOW()), "
+            "  stripe_session_id = COALESCE(stripe_session_id, %s), "
+            "  last_seen_at = NOW() "
+            "WHERE id = %s",
+            (plan, session_id, user_id),
+        )
+        updated = cur.rowcount
+    conn.commit()
+    return updated > 0
+
+
+def set_plan_by_email(conn, email: str, plan: str = "pro", session_id: Optional[str] = None) -> Optional[str]:
+    """Fallback when a payment has no client_reference_id: grant the plan to the
+    account that owns this email. Returns the user_id granted, or None."""
+    if not conn or not email:
+        return None
+    u = get_account_by_email(conn, email)
+    if not u:
+        return None
+    if set_plan(conn, u["id"], plan, session_id):
+        return u["id"]
+    return None
+
+
+def was_session_processed(conn, session_id: str) -> bool:
+    """Whether a Stripe Checkout Session already granted a plan, so a duplicate
+    webhook for the same session is ignored (and a replayed session id cannot be
+    used to grant a second, different account)."""
+    if not conn or not session_id:
+        return False
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM users WHERE stripe_session_id = %s LIMIT 1", (session_id,))
+        return cur.fetchone() is not None
 
 
 # ---------------------------------------------------------------- profiles
