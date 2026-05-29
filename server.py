@@ -77,6 +77,9 @@ def _run_refresh(profile_path, top_n=None):
                             started_at=time.time(), finished_at=None,
                             result=None, error=None)
         summary = pipeline.run(profile_path, progress=progress, top_n=top_n)
+        # Persist the freshly written pool to Postgres so it survives a redeploy
+        # (the host's disk is ephemeral). Best-effort, never breaks the refresh.
+        _persist_pool()
         with _refresh_lock:
             _refresh.update(running=False, stage="Done", pct=100,
                             finished_at=time.time(), result=summary)
@@ -178,6 +181,75 @@ async def _identity(request: Request, call_next):
 
 RANKED_FILE = os.environ.get("RANKED_FILE", "ranked_jobs.json")
 
+# In-memory cache of the parsed shared pool. The pool is large, so we avoid
+# re-reading it on every request: we keep the parsed list here keyed by a cheap
+# freshness token (the DB row's updated_at, or the file mtime), and only reload
+# the big payload when that token changes. This also gives durability: the pool
+# is read from Postgres first (which survives redeploys) and only falls back to
+# the committed file when the DB is empty or off (first boot / local dev).
+_POOL_CACHE = {"src": None, "token": None, "data": None}
+_POOL_LOCK = threading.Lock()
+
+
+def _pool_list():
+    """Return the raw shared job pool as a parsed list, DB-first with a file
+    fallback, cached by freshness token. Treat the result as READ-ONLY: callers
+    that mutate (the scorer) must copy first (see _raw_pool)."""
+    # Postgres first (durable). A cheap meta probe decides cache freshness.
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    meta = db.pool_meta(conn)
+                    if meta is not None:
+                        token = ("db", str(meta[1]))
+                        with _POOL_LOCK:
+                            if _POOL_CACHE["src"] == "db" and _POOL_CACHE["token"] == token:
+                                return _POOL_CACHE["data"]
+                        data = db.load_pool(conn)
+                        if data is not None:
+                            with _POOL_LOCK:
+                                _POOL_CACHE.update(src="db", token=token, data=data)
+                            return data
+        except Exception:
+            pass
+    # File fallback (committed seed, or local dev with no DB).
+    if not os.path.exists(RANKED_FILE):
+        return []
+    try:
+        token = ("file", os.path.getmtime(RANKED_FILE))
+        with _POOL_LOCK:
+            if _POOL_CACHE["src"] == "file" and _POOL_CACHE["token"] == token:
+                return _POOL_CACHE["data"]
+        with open(RANKED_FILE) as f:
+            data = json.load(f)
+        with _POOL_LOCK:
+            _POOL_CACHE.update(src="file", token=token, data=data)
+        return data
+    except Exception:
+        return []
+
+
+def _persist_pool():
+    """After a refresh, copy the freshly written ranked file into Postgres so it
+    survives redeploys, and refresh the in-memory cache. Best-effort: never
+    raises, so it can never break the refresh that produced the data."""
+    if not db.has_db():
+        return
+    try:
+        if not os.path.exists(RANKED_FILE):
+            return
+        with open(RANKED_FILE) as f:
+            jobs = json.load(f)
+        with db.get_conn() as conn:
+            if conn:
+                db.save_pool(conn, jobs)
+        # Drop the cache token so the next read reloads from the DB.
+        with _POOL_LOCK:
+            _POOL_CACHE.update(src=None, token=None, data=None)
+    except Exception:
+        pass
+
 
 # ---------------------------------------------------------------- shaping
 def _shape(job):
@@ -210,10 +282,9 @@ def _shape(job):
 
 
 def _from_file():
-    if not os.path.exists(RANKED_FILE):
-        return []
-    with open(RANKED_FILE) as f:
-        return [_shape(j) for j in json.load(f)]
+    # Shaped feed from the shared pool (DB-first, file fallback). _shape builds
+    # fresh dicts, so reading the cached list here is safe.
+    return [_shape(j) for j in _pool_list()]
 
 
 def _from_db(user_id, tier):
@@ -252,15 +323,11 @@ def _load(user_id="me", tier=None):
 
 
 def _raw_pool():
-    """The shared, unshaped job pool (the latest owner refresh output). This is
-    the universe a visitor's per-profile heuristic feed gets scored over."""
-    if not os.path.exists(RANKED_FILE):
-        return []
-    try:
-        with open(RANKED_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return []
+    """The shared, unshaped job pool (the latest owner refresh output), DB-first
+    with a file fallback. Returns shallow COPIES of each job dict: the heuristic
+    scorer mutates jobs (adds _score/_matched) and sorts the list, so it must
+    never touch the shared in-memory cache."""
+    return [dict(j) for j in _pool_list()]
 
 
 def _user_profile(user_id):

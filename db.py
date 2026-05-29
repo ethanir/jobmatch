@@ -40,6 +40,7 @@ them back from this table. save_ranking therefore prefers the job's own `_id`
 so the round-trip is exact.
 """
 import hashlib
+import json
 import os
 import threading
 from contextlib import contextmanager
@@ -103,6 +104,14 @@ CREATE TABLE IF NOT EXISTS usage (
     paid_cents  INTEGER NOT NULL DEFAULT 0,
     refreshes   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS pool (
+    id          INTEGER     PRIMARY KEY DEFAULT 1,
+    data        TEXT        NOT NULL,
+    n           INTEGER     NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT pool_single_row CHECK (id = 1)
 );
 """
 
@@ -437,3 +446,54 @@ def increment_usage(conn, user_id: str, month: str,
             (user_id, month, ai_calls, paid_cents, refreshes),
         )
     conn.commit()
+
+
+# ---------------------------------------------------------------- shared pool
+# The shared job pool (the owner's latest Refresh output) is stored here so it
+# survives a redeploy, instead of living only on the host's ephemeral disk. It
+# is one row holding the same JSON the feed already parses, plus a count and a
+# timestamp the read path uses as a cheap cache-freshness check.
+def save_pool(conn, jobs: list) -> None:
+    """Persist the whole ranked pool as one row (id=1). `jobs` is the parsed
+    list exactly as written to ranked_jobs.json."""
+    if not conn or jobs is None:
+        return
+    payload = json.dumps(jobs)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO pool (id, data, n, updated_at) VALUES (1, %s, %s, NOW()) "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "  data = EXCLUDED.data, n = EXCLUDED.n, updated_at = NOW()",
+            (payload, len(jobs)),
+        )
+    conn.commit()
+
+
+def pool_meta(conn):
+    """Cheap freshness probe: (n, updated_at) for the stored pool, or None if
+    none stored. Does NOT fetch the large data column, so it is safe to call on
+    every feed read to decide whether an in-memory cache is stale."""
+    if not conn:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT n, updated_at FROM pool WHERE id = 1")
+        row = cur.fetchone()
+    if not row:
+        return None
+    return (row["n"], row["updated_at"])
+
+
+def load_pool(conn):
+    """Return the stored pool as a parsed list, or None if none stored or it
+    cannot be parsed. This is the large read; callers cache it."""
+    if not conn:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT data FROM pool WHERE id = 1")
+        row = cur.fetchone()
+    if not row or not row.get("data"):
+        return None
+    try:
+        return json.loads(row["data"])
+    except Exception:
+        return None
