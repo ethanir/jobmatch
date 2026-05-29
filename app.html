@@ -260,6 +260,14 @@
   .modal.wide textarea{width:100%;min-height:96px;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px;color:var(--ink);font-family:var(--fu);font-size:12.5px;line-height:1.5;resize:vertical;outline:none}
   .modal.wide textarea:focus{border-color:var(--greenln)}
   .modal-msg.ok{color:var(--green)}
+  .addjob-btn{display:inline-flex;align-items:center;gap:7px;align-self:flex-start;background:var(--green);color:#08120c;border:none;border-radius:11px;padding:10px 15px;font-family:var(--fu);font-weight:700;font-size:13.5px;cursor:pointer}
+  .addjob-btn:hover{opacity:.92}
+  .addjob-field{margin-bottom:11px;text-align:left}
+  .addjob-field label{display:block;font-family:var(--fu);font-size:12px;font-weight:700;color:var(--mut);margin-bottom:5px}
+  .addjob-field input{width:100%;background:#0a0d12;border:1px solid var(--line2);border-radius:10px;padding:11px 12px;color:var(--ink);font-family:var(--fu);font-size:14px;font-weight:600;text-align:left;letter-spacing:0;outline:none}
+  .addjob-field input:focus{border-color:var(--greenln)}
+  .addjob-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:480px){.addjob-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -293,6 +301,7 @@
         <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
         <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
       </div>
+      <button class="addjob-btn" onclick="openAddJob()">+ Add a job you found on LinkedIn or Handshake</button>
     </div>
     <div class="list" id="list"></div>
   </section>
@@ -326,6 +335,29 @@
       <button class="modal-btn" id="rankSaveBtn" style="margin-top:14px" onclick="saveRank()">Save my rankings →</button>
     </div>
     <div class="modal-msg" id="rankMsg"></div>
+  </div>
+</div>
+
+<!-- add a job by hand (paste). Phase 0 of the extension: same store, same ranking. -->
+<div class="modal-bg" id="addBg" onclick="if(event.target===this)closeAddJob()">
+  <div class="modal wide" style="position:relative">
+    <button class="modal-x" onclick="closeAddJob()" aria-label="close">×</button>
+    <h2>Add a job</h2>
+    <p>Paste a role you found on LinkedIn, Handshake, or anywhere else. It joins your feed and is scored against your profile, and you can verify it with your own AI like any other match.</p>
+    <div class="addjob-field">
+      <label for="addDesc">Job description</label>
+      <textarea id="addDesc" placeholder="Paste the full job description here..."></textarea>
+    </div>
+    <div class="addjob-row">
+      <div class="addjob-field"><label for="addTitle">Title</label><input type="text" id="addTitle" placeholder="Backend Engineer"/></div>
+      <div class="addjob-field"><label for="addCompany">Company</label><input type="text" id="addCompany" placeholder="Acme"/></div>
+    </div>
+    <div class="addjob-row">
+      <div class="addjob-field"><label for="addLoc">Location</label><input type="text" id="addLoc" placeholder="Remote"/></div>
+      <div class="addjob-field"><label for="addUrl">Link (optional)</label><input type="text" id="addUrl" placeholder="https://..."/></div>
+    </div>
+    <button class="modal-btn" id="addSaveBtn" onclick="submitAddJob()">Add to my feed →</button>
+    <div class="modal-msg" id="addMsg"></div>
   </div>
 </div>
 
@@ -511,6 +543,47 @@ function loadRankPrompt(){
   }).catch(()=>{ RANK_PROMPT=""; pre.value=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
 }
 function closeRank(){ document.getElementById("rankBg").classList.remove("show"); }
+
+/* Add a job by hand (paste). Posts to /api/saved/add, which scores it with the
+   same brain and drops it into this user's feed. Same endpoint the extension
+   will use. */
+function openAddJob(){
+  document.getElementById("addBg").classList.add("show");
+  var msg=document.getElementById("addMsg"); msg.textContent=""; msg.className="modal-msg";
+  ["addDesc","addTitle","addCompany","addLoc","addUrl"].forEach(function(id){var e=document.getElementById(id); if(e) e.value="";});
+  var d=document.getElementById("addDesc"); if(d) d.focus();
+}
+function closeAddJob(){ document.getElementById("addBg").classList.remove("show"); }
+let ADD_SAVING=false;
+function submitAddJob(){
+  if(ADD_SAVING) return;
+  var desc=(document.getElementById("addDesc").value||"").trim();
+  var title=(document.getElementById("addTitle").value||"").trim();
+  var msg=document.getElementById("addMsg");
+  if(!desc && !title){ msg.className="modal-msg"; msg.textContent="Paste the job description, or at least a title."; return; }
+  var btn=document.getElementById("addSaveBtn"); var label=btn.textContent;
+  ADD_SAVING=true; btn.disabled=true; btn.textContent="Adding...";
+  msg.className="modal-msg"; msg.textContent="";
+  fetch(API+"/api/saved/add",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+    body:JSON.stringify({
+      description:desc, title:title,
+      company:(document.getElementById("addCompany").value||"").trim(),
+      location:(document.getElementById("addLoc").value||"").trim(),
+      url:(document.getElementById("addUrl").value||"").trim(),
+      source:"paste"
+    })})
+    .then(r=>r.json()).then(d=>{
+      ADD_SAVING=false; btn.disabled=false; btn.textContent=label;
+      if(d.ok){
+        var word = d.tier==="strong" ? "a strong match" : (d.tier==="possible" ? "a possible match" : "a likely skip");
+        msg.className="modal-msg ok";
+        msg.textContent="Added as "+word+" ("+d.score+"). Updating your feed...";
+        setTimeout(function(){ closeAddJob(); loadJobs(); toast("Job added to your feed. Use Rank my matches to verify it with your AI."); }, 800);
+      } else {
+        msg.className="modal-msg"; msg.textContent=d.error || "Couldn't add the job.";
+      }
+    }).catch(function(){ ADD_SAVING=false; btn.disabled=false; btn.textContent=label; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+}
 function copyRankPrompt(){
   if(!RANK_PROMPT) return;
   copy(RANK_PROMPT);

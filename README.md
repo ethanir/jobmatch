@@ -216,6 +216,53 @@ jobrolu/
 
 ---
 
+## 🧭 Roadmap: capture jobs from anywhere
+
+The goal is to let people rank jobs from anywhere they already look, not only the sourced pool, using the same profile-aware brain, one job at a time, paid for by the user's own AI so it stays free to run.
+
+### Phase 0: Add a job by hand (shipped)
+
+A signed-in user can paste any job (description, plus optional title, company, location, and link) on the feed page. It is stored as a per-user *saved job*, scored immediately against their profile by the same heuristic, and merged into their feed. It then rides the existing bring-your-own-AI ranking, so they can verify it in full for free, exactly like a sourced role.
+
+The server foundation here is also what the extension will use: a `saved_jobs` table keyed by `(user_id, job_id)`, `POST /api/saved/add` (dedupes, scores, returns a card), `POST /api/saved/remove`, and the saved jobs merged into both the per-user feed and the AI-rank candidates. Dedup is by a stable id, so re-adding the same posting never duplicates it or wastes a rank, and a saved job stays visible even under a tier filter so it never silently vanishes.
+
+### Phase 1: Browser extension (planned)
+
+The vision: as a user scrolls LinkedIn or Handshake and opens a job, the extension reads that posting, scores it against their Jobrolu profile with their own AI, and adds it to their feed automatically. Every account links its own extension, so each person's browsing fills their own feed. We start with Handshake (friendlier), then LinkedIn.
+
+How it works:
+- A content script reads the job the user is viewing: title, company, location, the full description (including the text hidden behind "see more"), the posted date, and the page URL.
+- A stable job id comes from the URL (LinkedIn and Handshake both carry a numeric job id), so the same posting always maps to the same id.
+- The extension dedupes locally (a set of ids it has already ranked) and the server dedupes too (per-user rankings keyed by id), so a refresh or a revisit never re-ranks or re-charges.
+- A new job is ranked once with the user's own AI key (bring-your-own-AI, one posting at a time, a fraction of a cent), then posted to the website, which stores it in the user's feed through the same `saved_jobs` path.
+- Account linkage: the website issues a per-user connect token; the user pastes it into the extension once.
+- A small popup handles connect-to-account, the AI key, an on/off toggle, and a "ranked today" count.
+
+### Design requirements captured (so none get lost)
+
+- **No wasted credits.** Dedup by stable job id, both locally and on the server. A refresh, a next-job-then-back, and a re-open must never re-rank a job already ranked.
+- **Full descriptions.** Read the complete posting from the page, including the text behind the "see more" button, because the full description gives a far better score than a snippet. This is also why the extension beats any server fetch: LinkedIn and Handshake sit behind login and JavaScript, so a server request only hits a wall, while the user's own logged-in page already has the full text.
+- **Job dates.** Capture the posted date shown on LinkedIn and Handshake and carry it through, so recency feeds into both the score and the card.
+- **Full user context in scoring.** The score already uses target titles, seniority, skills, location preferences, work experience, and projects; the extension keeps all of that and adds the full job text. (Education and links are stored and can be added to the AI prompt later.)
+- **Free to run.** Bring-your-own-AI: the user's key does the work. There is no truly free production AI API, but one posting is a tiny prompt, so it is effectively free for the user and costs nothing to run.
+
+### Honest risks and how we handle them
+
+- **LinkedIn terms of service.** Automated reading of LinkedIn pages is against their user agreement. Reading the page a user is already viewing, with no auto-clicking and no auto-applying, is lower risk than server scraping and is what comparable extensions do, but it is not zero risk, and the user carries some account risk. We stay read-only, move at the user's own pace, and start with Handshake.
+- **Page structure changes.** LinkedIn and Handshake change their HTML often, so the selectors will break and need upkeep. This is ongoing maintenance, not a one-time build.
+- **Store review.** A LinkedIn-reading extension can draw extra scrutiny in the Chrome Web Store.
+- **Not open source.** The capture and ranking logic stays proprietary to protect the product, so it is not published for copying.
+
+### Open questions to settle while building
+
+- Exact job-id extraction per site, with a fallback id (company plus title plus location) when a page carries none.
+- Handling a description that has not finished loading when the user scrolls past quickly.
+- A sensible per-session rank cap so a fast scroll does not fire dozens of calls at once.
+- How to treat a posting that changed since it was ranked: re-rank on demand, or keep the first score.
+- Cross-device dedup relies on the server's per-user rankings as the source of truth.
+
+---
+
 ## 🔒 Principles
 
 - **Honest over hopeful.** A correct "skip" beats an inflated match, and an estimate is labeled as an estimate.

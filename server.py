@@ -407,6 +407,7 @@ def _shape(job):
         "url": job.get("url", ""),
         "posted": job.get("posted", ""),
         "source": job.get("source", "") or job.get("ats", ""),
+        "saved": bool(job.get("saved")),
         "tier": job.get("tier") or fit.get("tier") or "possible",
         "score": job.get("score") if job.get("score") is not None else fit.get("score") or 0,
         "reasons": job.get("reasons") or fit.get("reasons") or [],
@@ -502,6 +503,7 @@ def _visitor_feed(user_id, profile, tier):
         return _from_file(), "file"
     overlay = {}
     statusmap = {}
+    saved = []
     if db.has_db():
         try:
             with db.get_conn() as conn:
@@ -514,11 +516,20 @@ def _visitor_feed(user_id, profile, tier):
                         statusmap = db.get_status_map(conn, user_id)
                     except Exception:
                         statusmap = {}
+                    # Jobs the user added by hand or via the extension. Guarded
+                    # separately for the same reason (older DBs lack the table).
+                    try:
+                        saved = db.get_saved_jobs(conn, user_id)
+                    except Exception:
+                        saved = []
         except Exception:
             overlay = {}
             statusmap = {}
+            saved = []
     out = []
+    base_ids = set()
     for j in base:
+        base_ids.add(j["id"])
         jid = j["id"]
         if jid in overlay:
             f = overlay[jid]
@@ -538,10 +549,39 @@ def _visitor_feed(user_id, profile, tier):
             "date_posted": j.get("date_posted"),
             "status": statusmap.get(jid, ""),
         }))
+    # User-added jobs (paste / extension): scored with the SAME heuristic + the
+    # user's own AI ranking when present, so they rank by the same brain as the
+    # pool. Skip any whose id already came from the pool so nothing doubles up.
+    fresh = [dict(s) for s in saved if s.get("id") and s["id"] not in base_ids]
+    if fresh:
+        score.rank_free(fresh, profile)      # sets _score/_matched/_why/_flags
+        for s in fresh:
+            jid = s["id"]
+            if jid in overlay:
+                f = overlay[jid]
+                fit = {"tier": f.get("tier"), "score": f.get("score"),
+                       "reasons": f.get("reasons") or [],
+                       "matched_skills": f.get("matched_skills") or [],
+                       "missing_skills": f.get("missing_skills") or []}
+            else:
+                fit = score.heuristic_fit(s)
+            out.append(_shape({
+                "id": jid,
+                "company": s.get("company", ""), "title": s.get("title", ""),
+                "location": s.get("location", ""), "url": s.get("url", ""),
+                "source": s.get("source", "saved"),
+                "fit": fit,
+                "is_new": False,
+                "date_posted": s.get("date_posted"),
+                "status": statusmap.get(jid, ""),
+                "saved": True,
+            }))
     order = {"strong": 0, "possible": 1, "skip": 2}
     out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))
     if tier and tier != "all":
-        out = [j for j in out if j["tier"] == tier]
+        # A job the user added by hand always stays visible, even under a tier
+        # filter, so a pasted role never silently vanishes from their feed.
+        out = [j for j in out if j["tier"] == tier or j.get("saved")]
     return out, "heuristic"
 
 
@@ -1128,39 +1168,64 @@ def _rank_candidates(user_id, profile, limit):
     feed cache trims descriptions for display) so the AI judges the complete posting,
     not a snippet."""
     base = _scored_base(profile)
-    if not base:
-        return []
-    # id -> full description, straight from the pool (read-only; no copy).
-    full = {}
-    try:
-        for j in _pool_list():
-            full[db.job_hash(j)] = (j.get("description") or "")
-    except Exception:
-        full = {}
     already = {}
+    saved = []
     if db.has_db():
         try:
             with db.get_conn() as conn:
                 if conn:
                     already = db.get_rankings_map(conn, user_id)
+                    try:
+                        saved = db.get_saved_jobs(conn, user_id)
+                    except Exception:
+                        saved = []
         except Exception:
             already = {}
+            saved = []
     out = []
-    for j in base:
-        if j["id"] in already:
+    seen = set()
+    # 1) User-added jobs first (explicit intent), unranked only, with the FULL
+    #    description we stored, so the user's AI judges the complete posting.
+    for s in saved:
+        jid = s.get("id")
+        if not jid or jid in already or jid in seen:
             continue
-        desc = full.get(j["id"], j.get("description", "") or "")
         out.append({
-            "id": j["id"],
-            "company": j["company"],
-            "title": j["title"],
-            "location": j["location"],
-            "source": j.get("source", ""),
-            "url": j.get("url", ""),
-            "description": (desc or "")[:RANK_DESC_CHARS],
+            "id": jid,
+            "company": s.get("company", ""),
+            "title": s.get("title", ""),
+            "location": s.get("location", ""),
+            "source": s.get("source", "saved"),
+            "url": s.get("url", ""),
+            "description": (s.get("description") or "")[:RANK_DESC_CHARS],
         })
+        seen.add(jid)
         if len(out) >= limit:
             break
+    # 2) Then the pool's top unranked matches, keyed by the SAME id the feed uses.
+    if len(out) < limit and base:
+        full = {}
+        try:
+            for j in _pool_list():
+                full[db.job_hash(j)] = (j.get("description") or "")
+        except Exception:
+            full = {}
+        for j in base:
+            if len(out) >= limit:
+                break
+            if j["id"] in already or j["id"] in seen:
+                continue
+            desc = full.get(j["id"], j.get("description", "") or "")
+            out.append({
+                "id": j["id"],
+                "company": j["company"],
+                "title": j["title"],
+                "location": j["location"],
+                "source": j.get("source", ""),
+                "url": j.get("url", ""),
+                "description": (desc or "")[:RANK_DESC_CHARS],
+            })
+            seen.add(j["id"])
     # Optional: fetch full text for the handful of top jobs whose board omits it,
     # so the AI has the complete posting for them too. Off by default; enable with
     # ENRICH_DESCRIPTIONS=1 once the live detail endpoints are smoke-tested.
@@ -1507,3 +1572,115 @@ async def rank_import(request: Request):
     if saved == 0:
         return {"ok": False, "error": "None of those rankings matched your current jobs. Re-copy the prompt and try again."}
     return {"ok": True, "saved": saved, "skipped": skipped}
+
+
+def _guess_meta(text):
+    """Cheap best-effort title / company / location from a pasted job description.
+    The AI rank does not need these, they only make the saved card readable when
+    the user did not fill them in. The extension passes real values, so this is
+    just a fallback for the paste-a-description path."""
+    import re as _re
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    title = lines[0][:120] if lines else ""
+    company = ""
+    location = ""
+    for l in lines[:10]:
+        if not company:
+            m = _re.search(r"\bat\s+([A-Z][\w&.\-' ]{2,40})", l)
+            if m:
+                company = m.group(1).strip()
+        if not location and _re.search(r"\b(remote|hybrid|on-?site)\b", l, _re.I):
+            location = l[:60]
+    return title, company, location
+
+
+@app.post("/api/saved/add")
+async def saved_add(request: Request):
+    """Add one job to THIS user's feed from a pasted description (Phase 0) or from
+    the browser extension (later). Free: it is scored with the same heuristic and
+    becomes eligible for the user's own AI rank, exactly like a sourced job. Dedup
+    is by a stable id, so re-adding or re-viewing the same posting never doubles it
+    up or wastes a rank. The user's own AI does any paid work, so this costs us
+    nothing per job."""
+    user_id = request.state.user_id
+    profile = _user_profile(user_id)
+    if not profile:
+        return {"ok": False, "error": "Build a profile first, then you can add and rank jobs."}
+    if not db.has_db():
+        return {"ok": False, "error": "Saved jobs need the database, which is off right now."}
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "Expected a JSON object."}
+    desc = (body.get("description") or "").strip()
+    title = (body.get("title") or "").strip()
+    company = (body.get("company") or "").strip()
+    location = (body.get("location") or "").strip()
+    url = (body.get("url") or "").strip()
+    source = (body.get("source") or "").strip() or "paste"
+    explicit_id = (body.get("id") or "").strip()
+    dp = body.get("date_posted")
+    if not desc and not title:
+        return {"ok": False, "error": "Paste the job description, or at least a title."}
+    if not title or not company:
+        gt, gc, gl = _guess_meta(desc)
+        title = title or gt
+        company = company or gc
+        location = location or gl
+    title = title or "(pasted role)"
+    company = company or "(company)"
+    job = {"id": explicit_id or None, "company": company, "title": title,
+           "location": location, "description": desc, "url": url,
+           "source": source, "date_posted": dp}
+    saved_id = None
+    try:
+        with db.get_conn() as conn:
+            if not conn:
+                return {"ok": False, "error": "Couldn't reach the database. Try again."}
+            db.ensure_user(conn, user_id)
+            saved_id = db.save_saved_job(conn, user_id, job)
+    except Exception:
+        return {"ok": False, "error": "Couldn't save the job. Try again."}
+    if not saved_id:
+        return {"ok": False, "error": "Couldn't save the job. Try again."}
+    # Score it now with the free heuristic so it shows immediately, using THIS
+    # user's profile (so discipline / seniority are respected like everywhere else).
+    import score as _score
+    scoring = {"id": saved_id, "company": company, "title": title,
+               "location": location, "url": url, "source": source,
+               "description": desc, "date_posted": dp}
+    score_list = [scoring]
+    try:
+        _score.rank_free(score_list, profile)
+        fit = _score.heuristic_fit(score_list[0])
+    except Exception:
+        fit = {"tier": "possible", "score": 50, "reasons": [], "matched_skills": [], "missing_skills": []}
+    card = _shape({"id": saved_id, "company": company, "title": title,
+                   "location": location, "url": url, "source": source,
+                   "fit": fit, "date_posted": dp, "saved": True})
+    return {"ok": True, "id": saved_id, "job": card,
+            "tier": card["tier"], "score": card["score"]}
+
+
+@app.post("/api/saved/remove")
+async def saved_remove(request: Request):
+    """Remove a user-added job (and any ranking attached to it) from the feed."""
+    user_id = request.state.user_id
+    if not db.has_db():
+        return {"ok": False, "error": "Saved jobs need the database, which is off right now."}
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    jid = str((body or {}).get("id", "")).strip() if isinstance(body, dict) else ""
+    if not jid:
+        return {"ok": False, "error": "Missing job id."}
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                db.delete_saved_job(conn, user_id, jid)
+    except Exception:
+        return {"ok": False, "error": "Couldn't remove the job. Try again."}
+    return {"ok": True}

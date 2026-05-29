@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS job_status (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, job_id)
 );
+
+CREATE TABLE IF NOT EXISTS saved_jobs (
+    user_id      TEXT        NOT NULL,
+    job_id       TEXT        NOT NULL,
+    company      TEXT,
+    title        TEXT,
+    location     TEXT,
+    description  TEXT,
+    url          TEXT,
+    source       TEXT,
+    date_posted  BIGINT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, job_id)
+);
 """
 
 
@@ -528,6 +542,86 @@ def set_status(conn, user_id: str, job_id: str, status: str) -> None:
             "  status = EXCLUDED.status, updated_at = NOW()",
             (user_id, job_id, status),
         )
+    conn.commit()
+
+
+# ---------------------------------------------------------------- saved jobs
+def get_saved_jobs(conn, user_id: str) -> list:
+    """Every job this user added by hand (paste) or via the extension, newest
+    first. These live alongside the sourced pool and are merged into the user's
+    feed, so a pasted LinkedIn or Handshake role is ranked with the same brain
+    and the same profile context as everything else."""
+    if not conn or not user_id:
+        return []
+    out = []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT job_id, company, title, location, description, url, source, "
+            "date_posted FROM saved_jobs WHERE user_id = %s ORDER BY created_at DESC",
+            (user_id,),
+        )
+        for r in cur.fetchall():
+            out.append({
+                "id": r["job_id"],
+                "company": r["company"] or "",
+                "title": r["title"] or "",
+                "location": r["location"] or "",
+                "description": r["description"] or "",
+                "url": r["url"] or "",
+                "source": r["source"] or "saved",
+                "date_posted": r["date_posted"],
+                "saved": True,
+            })
+    return out
+
+
+def save_saved_job(conn, user_id: str, job: dict) -> str:
+    """Upsert one user-added job, keyed by a stable id (the caller's explicit id
+    when present, e.g. a LinkedIn job id from the extension, else
+    company+title+location), so re-adding or re-viewing the same posting never
+    creates a duplicate or wastes a rank. A re-add with an empty description keeps
+    the fuller one already stored. Returns the job_id used."""
+    if not conn or not user_id:
+        return ""
+    jid = job.get("id") or job.get("_id") or job_hash(job)
+    dp = job.get("date_posted")
+    try:
+        dp = int(dp) if dp not in (None, "") else None
+    except (TypeError, ValueError):
+        dp = None
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO saved_jobs ("
+            "  user_id, job_id, company, title, location, description, url, source, date_posted"
+            ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (user_id, job_id) DO UPDATE SET "
+            "  company = EXCLUDED.company, title = EXCLUDED.title, "
+            "  location = EXCLUDED.location, "
+            "  description = COALESCE(NULLIF(EXCLUDED.description, ''), saved_jobs.description), "
+            "  url = COALESCE(NULLIF(EXCLUDED.url, ''), saved_jobs.url), "
+            "  source = EXCLUDED.source, "
+            "  date_posted = COALESCE(EXCLUDED.date_posted, saved_jobs.date_posted)",
+            (
+                user_id, jid,
+                job.get("company"), job.get("title"), job.get("location"),
+                job.get("description"), job.get("url"),
+                job.get("source") or "saved", dp,
+            ),
+        )
+    conn.commit()
+    return jid
+
+
+def delete_saved_job(conn, user_id: str, job_id: str) -> None:
+    """Remove a user-added job and any ranking attached to it, so 'remove' fully
+    clears it from the feed."""
+    if not conn or not user_id or not job_id:
+        return
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM saved_jobs WHERE user_id = %s AND job_id = %s",
+                    (user_id, job_id))
+        cur.execute("DELETE FROM rankings WHERE user_id = %s AND job_id = %s",
+                    (user_id, job_id))
     conn.commit()
 
 
