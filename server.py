@@ -1057,6 +1057,8 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
 # web flow and the CLI stay consistent.
 RANK_EXPORT_MAX = 150         # most jobs we ask a web chat to score at once
 RANK_IMPORT_MAX = 300         # hard cap on rankings accepted per import call
+RANK_DESC_CHARS = 1200        # chars of each posting handed to the AI to read
+RANK_ENRICH_CAP = 60          # max thin-desc jobs to backfill per rank (when enabled)
 _VALID_TIERS = ("strong", "possible", "skip")
 
 
@@ -1064,10 +1066,19 @@ def _rank_candidates(user_id, profile, limit):
     """The visitor's top-N jobs to hand their AI: highest free score first,
     skipping ones they have already had verified, each keyed by the SAME id the
     feed uses (db.job_hash) so the AI's reply maps straight back. Uses the cached
-    scored base, so it does not re-score the whole pool."""
+    scored base for ORDER, but pulls each job's FULL description from the pool (the
+    feed cache trims descriptions for display) so the AI judges the complete posting,
+    not a snippet."""
     base = _scored_base(profile)
     if not base:
         return []
+    # id -> full description, straight from the pool (read-only; no copy).
+    full = {}
+    try:
+        for j in _pool_list():
+            full[db.job_hash(j)] = (j.get("description") or "")
+    except Exception:
+        full = {}
     already = {}
     if db.has_db():
         try:
@@ -1080,15 +1091,29 @@ def _rank_candidates(user_id, profile, limit):
     for j in base:
         if j["id"] in already:
             continue
+        desc = full.get(j["id"], j.get("description", "") or "")
         out.append({
             "id": j["id"],
             "company": j["company"],
             "title": j["title"],
             "location": j["location"],
-            "description": (j.get("description", "") or "")[:600],
+            "source": j.get("source", ""),
+            "url": j.get("url", ""),
+            "description": (desc or "")[:RANK_DESC_CHARS],
         })
         if len(out) >= limit:
             break
+    # Optional: fetch full text for the handful of top jobs whose board omits it,
+    # so the AI has the complete posting for them too. Off by default; enable with
+    # ENRICH_DESCRIPTIONS=1 once the live detail endpoints are smoke-tested.
+    if os.environ.get("ENRICH_DESCRIPTIONS") == "1":
+        try:
+            import enrich_desc
+            enrich_desc.backfill(out, cap=RANK_ENRICH_CAP)
+            for c in out:
+                c["description"] = (c.get("description", "") or "")[:RANK_DESC_CHARS]
+        except Exception:
+            pass
     return out
 
 
