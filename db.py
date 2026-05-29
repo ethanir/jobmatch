@@ -42,7 +42,6 @@ so the round-trip is exact.
 import hashlib
 import json
 import os
-import secrets
 import threading
 from contextlib import contextmanager
 from typing import Optional
@@ -131,29 +130,6 @@ CREATE TABLE IF NOT EXISTS job_status (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, job_id)
 );
-
-CREATE TABLE IF NOT EXISTS saved_jobs (
-    user_id      TEXT        NOT NULL,
-    job_id       TEXT        NOT NULL,
-    company      TEXT,
-    title        TEXT,
-    location     TEXT,
-    description  TEXT,
-    url          TEXT,
-    source       TEXT,
-    date_posted  BIGINT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, job_id)
-);
-
-CREATE TABLE IF NOT EXISTS ext_tokens (
-    token_hash   TEXT        PRIMARY KEY,
-    user_id      TEXT        NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_used_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS ext_tokens_user_idx ON ext_tokens (user_id);
 """
 
 
@@ -552,143 +528,6 @@ def set_status(conn, user_id: str, job_id: str, status: str) -> None:
             "  status = EXCLUDED.status, updated_at = NOW()",
             (user_id, job_id, status),
         )
-    conn.commit()
-
-
-# ---------------------------------------------------------------- saved jobs
-def get_saved_jobs(conn, user_id: str) -> list:
-    """Every job this user added by hand (paste) or via the extension, newest
-    first. These live alongside the sourced pool and are merged into the user's
-    feed, so a pasted LinkedIn or Handshake role is ranked with the same brain
-    and the same profile context as everything else."""
-    if not conn or not user_id:
-        return []
-    out = []
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT job_id, company, title, location, description, url, source, "
-            "date_posted FROM saved_jobs WHERE user_id = %s ORDER BY created_at DESC",
-            (user_id,),
-        )
-        for r in cur.fetchall():
-            out.append({
-                "id": r["job_id"],
-                "company": r["company"] or "",
-                "title": r["title"] or "",
-                "location": r["location"] or "",
-                "description": r["description"] or "",
-                "url": r["url"] or "",
-                "source": r["source"] or "saved",
-                "date_posted": r["date_posted"],
-                "saved": True,
-            })
-    return out
-
-
-def save_saved_job(conn, user_id: str, job: dict) -> str:
-    """Upsert one user-added job, keyed by a stable id (the caller's explicit id
-    when present, e.g. a LinkedIn job id from the extension, else
-    company+title+location), so re-adding or re-viewing the same posting never
-    creates a duplicate or wastes a rank. A re-add with an empty description keeps
-    the fuller one already stored. Returns the job_id used."""
-    if not conn or not user_id:
-        return ""
-    jid = job.get("id") or job.get("_id") or job_hash(job)
-    dp = job.get("date_posted")
-    try:
-        dp = int(dp) if dp not in (None, "") else None
-    except (TypeError, ValueError):
-        dp = None
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO saved_jobs ("
-            "  user_id, job_id, company, title, location, description, url, source, date_posted"
-            ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-            "ON CONFLICT (user_id, job_id) DO UPDATE SET "
-            "  company = EXCLUDED.company, title = EXCLUDED.title, "
-            "  location = EXCLUDED.location, "
-            "  description = COALESCE(NULLIF(EXCLUDED.description, ''), saved_jobs.description), "
-            "  url = COALESCE(NULLIF(EXCLUDED.url, ''), saved_jobs.url), "
-            "  source = EXCLUDED.source, "
-            "  date_posted = COALESCE(EXCLUDED.date_posted, saved_jobs.date_posted)",
-            (
-                user_id, jid,
-                job.get("company"), job.get("title"), job.get("location"),
-                job.get("description"), job.get("url"),
-                job.get("source") or "saved", dp,
-            ),
-        )
-    conn.commit()
-    return jid
-
-
-def delete_saved_job(conn, user_id: str, job_id: str) -> None:
-    """Remove a user-added job and any ranking attached to it, so 'remove' fully
-    clears it from the feed."""
-    if not conn or not user_id or not job_id:
-        return
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM saved_jobs WHERE user_id = %s AND job_id = %s",
-                    (user_id, job_id))
-        cur.execute("DELETE FROM rankings WHERE user_id = %s AND job_id = %s",
-                    (user_id, job_id))
-    conn.commit()
-
-
-# ---------------------------------------------------------------- extension tokens
-def _hash_token(raw: str) -> str:
-    return hashlib.sha256((raw or "").encode("utf-8")).hexdigest()
-
-
-def create_ext_token(conn, user_id: str) -> str:
-    """Issue a fresh connect token for the browser extension, replacing any
-    previous one for this user (so re-connecting rotates the key). Only the hash
-    is stored; the raw token is returned once for the user to paste into the
-    extension and is never recoverable from the database afterward."""
-    if not conn or not user_id:
-        return ""
-    raw = secrets.token_urlsafe(32)
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM ext_tokens WHERE user_id = %s", (user_id,))
-        cur.execute("INSERT INTO ext_tokens (token_hash, user_id) VALUES (%s, %s)",
-                    (_hash_token(raw), user_id))
-    conn.commit()
-    return raw
-
-
-def user_for_ext_token(conn, raw: str) -> Optional[str]:
-    """Resolve a connect token to its user_id (or None), and stamp last_used_at.
-    This is how the extension authenticates: it cannot use the site cookie because
-    it runs on linkedin.com / handshake, not on jobrolu.com."""
-    if not conn or not raw:
-        return None
-    h = _hash_token(raw)
-    with conn.cursor() as cur:
-        cur.execute("SELECT user_id FROM ext_tokens WHERE token_hash = %s", (h,))
-        row = cur.fetchone()
-        if not row:
-            return None
-        uid = row["user_id"]
-        cur.execute("UPDATE ext_tokens SET last_used_at = NOW() WHERE token_hash = %s", (h,))
-    conn.commit()
-    return uid
-
-
-def has_ext_token(conn, user_id: str) -> bool:
-    """Whether this user currently has the extension connected."""
-    if not conn or not user_id:
-        return False
-    with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM ext_tokens WHERE user_id = %s LIMIT 1", (user_id,))
-        return cur.fetchone() is not None
-
-
-def revoke_ext_tokens(conn, user_id: str) -> None:
-    """Disconnect the extension by deleting this user's connect token(s)."""
-    if not conn or not user_id:
-        return
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM ext_tokens WHERE user_id = %s", (user_id,))
     conn.commit()
 
 

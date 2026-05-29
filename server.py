@@ -407,7 +407,6 @@ def _shape(job):
         "url": job.get("url", ""),
         "posted": job.get("posted", ""),
         "source": job.get("source", "") or job.get("ats", ""),
-        "saved": bool(job.get("saved")),
         "tier": job.get("tier") or fit.get("tier") or "possible",
         "score": job.get("score") if job.get("score") is not None else fit.get("score") or 0,
         "reasons": job.get("reasons") or fit.get("reasons") or [],
@@ -503,7 +502,6 @@ def _visitor_feed(user_id, profile, tier):
         return _from_file(), "file"
     overlay = {}
     statusmap = {}
-    saved = []
     if db.has_db():
         try:
             with db.get_conn() as conn:
@@ -516,20 +514,11 @@ def _visitor_feed(user_id, profile, tier):
                         statusmap = db.get_status_map(conn, user_id)
                     except Exception:
                         statusmap = {}
-                    # Jobs the user added by hand or via the extension. Guarded
-                    # separately for the same reason (older DBs lack the table).
-                    try:
-                        saved = db.get_saved_jobs(conn, user_id)
-                    except Exception:
-                        saved = []
         except Exception:
             overlay = {}
             statusmap = {}
-            saved = []
     out = []
-    base_ids = set()
     for j in base:
-        base_ids.add(j["id"])
         jid = j["id"]
         if jid in overlay:
             f = overlay[jid]
@@ -549,39 +538,10 @@ def _visitor_feed(user_id, profile, tier):
             "date_posted": j.get("date_posted"),
             "status": statusmap.get(jid, ""),
         }))
-    # User-added jobs (paste / extension): scored with the SAME heuristic + the
-    # user's own AI ranking when present, so they rank by the same brain as the
-    # pool. Skip any whose id already came from the pool so nothing doubles up.
-    fresh = [dict(s) for s in saved if s.get("id") and s["id"] not in base_ids]
-    if fresh:
-        score.rank_free(fresh, profile)      # sets _score/_matched/_why/_flags
-        for s in fresh:
-            jid = s["id"]
-            if jid in overlay:
-                f = overlay[jid]
-                fit = {"tier": f.get("tier"), "score": f.get("score"),
-                       "reasons": f.get("reasons") or [],
-                       "matched_skills": f.get("matched_skills") or [],
-                       "missing_skills": f.get("missing_skills") or []}
-            else:
-                fit = score.heuristic_fit(s)
-            out.append(_shape({
-                "id": jid,
-                "company": s.get("company", ""), "title": s.get("title", ""),
-                "location": s.get("location", ""), "url": s.get("url", ""),
-                "source": s.get("source", "saved"),
-                "fit": fit,
-                "is_new": False,
-                "date_posted": s.get("date_posted"),
-                "status": statusmap.get(jid, ""),
-                "saved": True,
-            }))
     order = {"strong": 0, "possible": 1, "skip": 2}
     out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))
     if tier and tier != "all":
-        # A job the user added by hand always stays visible, even under a tier
-        # filter, so a pasted role never silently vanishes from their feed.
-        out = [j for j in out if j["tier"] == tier or j.get("saved")]
+        out = [j for j in out if j["tier"] == tier]
     return out, "heuristic"
 
 
@@ -1168,64 +1128,39 @@ def _rank_candidates(user_id, profile, limit):
     feed cache trims descriptions for display) so the AI judges the complete posting,
     not a snippet."""
     base = _scored_base(profile)
+    if not base:
+        return []
+    # id -> full description, straight from the pool (read-only; no copy).
+    full = {}
+    try:
+        for j in _pool_list():
+            full[db.job_hash(j)] = (j.get("description") or "")
+    except Exception:
+        full = {}
     already = {}
-    saved = []
     if db.has_db():
         try:
             with db.get_conn() as conn:
                 if conn:
                     already = db.get_rankings_map(conn, user_id)
-                    try:
-                        saved = db.get_saved_jobs(conn, user_id)
-                    except Exception:
-                        saved = []
         except Exception:
             already = {}
-            saved = []
     out = []
-    seen = set()
-    # 1) User-added jobs first (explicit intent), unranked only, with the FULL
-    #    description we stored, so the user's AI judges the complete posting.
-    for s in saved:
-        jid = s.get("id")
-        if not jid or jid in already or jid in seen:
+    for j in base:
+        if j["id"] in already:
             continue
+        desc = full.get(j["id"], j.get("description", "") or "")
         out.append({
-            "id": jid,
-            "company": s.get("company", ""),
-            "title": s.get("title", ""),
-            "location": s.get("location", ""),
-            "source": s.get("source", "saved"),
-            "url": s.get("url", ""),
-            "description": (s.get("description") or "")[:RANK_DESC_CHARS],
+            "id": j["id"],
+            "company": j["company"],
+            "title": j["title"],
+            "location": j["location"],
+            "source": j.get("source", ""),
+            "url": j.get("url", ""),
+            "description": (desc or "")[:RANK_DESC_CHARS],
         })
-        seen.add(jid)
         if len(out) >= limit:
             break
-    # 2) Then the pool's top unranked matches, keyed by the SAME id the feed uses.
-    if len(out) < limit and base:
-        full = {}
-        try:
-            for j in _pool_list():
-                full[db.job_hash(j)] = (j.get("description") or "")
-        except Exception:
-            full = {}
-        for j in base:
-            if len(out) >= limit:
-                break
-            if j["id"] in already or j["id"] in seen:
-                continue
-            desc = full.get(j["id"], j.get("description", "") or "")
-            out.append({
-                "id": j["id"],
-                "company": j["company"],
-                "title": j["title"],
-                "location": j["location"],
-                "source": j.get("source", ""),
-                "url": j.get("url", ""),
-                "description": (desc or "")[:RANK_DESC_CHARS],
-            })
-            seen.add(j["id"])
     # Optional: fetch full text for the handful of top jobs whose board omits it,
     # so the AI has the complete posting for them too. Off by default; enable with
     # ENRICH_DESCRIPTIONS=1 once the live detail endpoints are smoke-tested.
@@ -1572,300 +1507,3 @@ async def rank_import(request: Request):
     if saved == 0:
         return {"ok": False, "error": "None of those rankings matched your current jobs. Re-copy the prompt and try again."}
     return {"ok": True, "saved": saved, "skipped": skipped}
-
-
-def _guess_meta(text):
-    """Cheap best-effort title / company / location from a pasted job description.
-    The AI rank does not need these, they only make the saved card readable when
-    the user did not fill them in. The extension passes real values, so this is
-    just a fallback for the paste-a-description path."""
-    import re as _re
-    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
-    title = lines[0][:120] if lines else ""
-    company = ""
-    location = ""
-    for l in lines[:10]:
-        if not company:
-            m = _re.search(r"\bat\s+([A-Z][\w&.\-' ]{2,40})", l)
-            if m:
-                company = m.group(1).strip()
-        if not location and _re.search(r"\b(remote|hybrid|on-?site)\b", l, _re.I):
-            location = l[:60]
-    return title, company, location
-
-
-@app.post("/api/saved/add")
-async def saved_add(request: Request):
-    """Add one job to THIS user's feed from a pasted description (Phase 0) or from
-    the browser extension (later). Free: it is scored with the same heuristic and
-    becomes eligible for the user's own AI rank, exactly like a sourced job. Dedup
-    is by a stable id, so re-adding or re-viewing the same posting never doubles it
-    up or wastes a rank. The user's own AI does any paid work, so this costs us
-    nothing per job."""
-    user_id = request.state.user_id
-    profile = _user_profile(user_id)
-    if not profile:
-        return {"ok": False, "error": "Build a profile first, then you can add and rank jobs."}
-    if not db.has_db():
-        return {"ok": False, "error": "Saved jobs need the database, which is off right now."}
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    if not isinstance(body, dict):
-        return {"ok": False, "error": "Expected a JSON object."}
-    desc = (body.get("description") or "").strip()
-    title = (body.get("title") or "").strip()
-    company = (body.get("company") or "").strip()
-    location = (body.get("location") or "").strip()
-    url = (body.get("url") or "").strip()
-    source = (body.get("source") or "").strip() or "paste"
-    explicit_id = (body.get("id") or "").strip()
-    dp = body.get("date_posted")
-    if not desc and not title:
-        return {"ok": False, "error": "Paste the job description, or at least a title."}
-    if not title or not company:
-        gt, gc, gl = _guess_meta(desc)
-        title = title or gt
-        company = company or gc
-        location = location or gl
-    title = title or "(pasted role)"
-    company = company or "(company)"
-    job = {"id": explicit_id or None, "company": company, "title": title,
-           "location": location, "description": desc, "url": url,
-           "source": source, "date_posted": dp}
-    saved_id = None
-    try:
-        with db.get_conn() as conn:
-            if not conn:
-                return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            db.ensure_user(conn, user_id)
-            saved_id = db.save_saved_job(conn, user_id, job)
-    except Exception:
-        return {"ok": False, "error": "Couldn't save the job. Try again."}
-    if not saved_id:
-        return {"ok": False, "error": "Couldn't save the job. Try again."}
-    # Score it now with the free heuristic so it shows immediately, using THIS
-    # user's profile (so discipline / seniority are respected like everywhere else).
-    import score as _score
-    scoring = {"id": saved_id, "company": company, "title": title,
-               "location": location, "url": url, "source": source,
-               "description": desc, "date_posted": dp}
-    score_list = [scoring]
-    try:
-        _score.rank_free(score_list, profile)
-        fit = _score.heuristic_fit(score_list[0])
-    except Exception:
-        fit = {"tier": "possible", "score": 50, "reasons": [], "matched_skills": [], "missing_skills": []}
-    card = _shape({"id": saved_id, "company": company, "title": title,
-                   "location": location, "url": url, "source": source,
-                   "fit": fit, "date_posted": dp, "saved": True})
-    return {"ok": True, "id": saved_id, "job": card,
-            "tier": card["tier"], "score": card["score"]}
-
-
-@app.post("/api/saved/remove")
-async def saved_remove(request: Request):
-    """Remove a user-added job (and any ranking attached to it) from the feed."""
-    user_id = request.state.user_id
-    if not db.has_db():
-        return {"ok": False, "error": "Saved jobs need the database, which is off right now."}
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    jid = str((body or {}).get("id", "")).strip() if isinstance(body, dict) else ""
-    if not jid:
-        return {"ok": False, "error": "Missing job id."}
-    try:
-        with db.get_conn() as conn:
-            if conn:
-                db.delete_saved_job(conn, user_id, jid)
-    except Exception:
-        return {"ok": False, "error": "Couldn't remove the job. Try again."}
-    return {"ok": True}
-
-
-# ---------------------------------------------------------------- browser extension
-def _user_from_ext_token(request: Request):
-    """Resolve the extension's connect token from the request headers to a
-    user_id, or None. The extension runs on linkedin.com / handshake, so it
-    cannot send the site cookie; it sends the token as 'X-Jobrolu-Token: <t>' or
-    'Authorization: Bearer <t>' instead."""
-    if not db.has_db():
-        return None
-    tok = (request.headers.get("x-jobrolu-token") or "").strip()
-    if not tok:
-        auth = request.headers.get("authorization") or ""
-        if auth.lower().startswith("bearer "):
-            tok = auth[7:].strip()
-    if not tok:
-        return None
-    try:
-        with db.get_conn() as conn:
-            if conn:
-                return db.user_for_ext_token(conn, tok)
-    except Exception:
-        return None
-    return None
-
-
-@app.post("/api/ext/token")
-async def ext_token(request: Request):
-    """Issue (or rotate) this signed-in user's extension connect token. Shown
-    once; generating a new one replaces the old, which disconnects any extension
-    still using it."""
-    _require_auth(request)
-    user_id = request.state.user_id
-    if not db.has_db():
-        return {"ok": False, "error": "The extension needs the database, which is off right now."}
-    try:
-        with db.get_conn() as conn:
-            if not conn:
-                return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            db.ensure_user(conn, user_id)
-            raw = db.create_ext_token(conn, user_id)
-    except Exception:
-        return {"ok": False, "error": "Couldn't create a token. Try again."}
-    return {"ok": True, "token": raw}
-
-
-@app.post("/api/ext/disconnect")
-async def ext_disconnect(request: Request):
-    """Disconnect the extension for this signed-in user."""
-    _require_auth(request)
-    user_id = request.state.user_id
-    if not db.has_db():
-        return {"ok": False, "error": "The extension needs the database, which is off right now."}
-    try:
-        with db.get_conn() as conn:
-            if conn:
-                db.revoke_ext_tokens(conn, user_id)
-    except Exception:
-        return {"ok": False, "error": "Couldn't disconnect. Try again."}
-    return {"ok": True}
-
-
-@app.get("/api/ext/status")
-def ext_status(request: Request):
-    """Whether this signed-in user currently has the extension connected."""
-    user_id = request.state.user_id
-    if not db.has_db():
-        return {"ok": True, "connected": False}
-    try:
-        with db.get_conn() as conn:
-            if conn:
-                return {"ok": True, "connected": db.has_ext_token(conn, user_id)}
-    except Exception:
-        pass
-    return {"ok": True, "connected": False}
-
-
-@app.post("/api/ext/ingest")
-async def ext_ingest(request: Request):
-    """The extension's main entry point. Given a job the user is viewing, store it,
-    dedup it, score it with the heuristic, and (only for a job with no verified
-    ranking yet) return a ready-to-run AI prompt built from the user's FULL profile.
-
-    The dedup contract is the important part for cost: once a job has a verified AI
-    ranking, this returns that score and NO prompt, so the extension never spends
-    the user's AI on the same posting twice, no matter how many times they refresh
-    or revisit it."""
-    user_id = _user_from_ext_token(request)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="connect the extension to your account first")
-    if not db.has_db():
-        return {"ok": False, "error": "The extension needs the database, which is off right now."}
-    profile = _user_profile(user_id)
-    if not profile:
-        return {"ok": False, "error": "Build a profile on Jobrolu first, then the extension can score jobs."}
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    if not isinstance(body, dict):
-        return {"ok": False, "error": "Expected a JSON object."}
-    desc = (body.get("description") or "").strip()
-    title = (body.get("title") or "").strip()
-    company = (body.get("company") or "").strip()
-    location = (body.get("location") or "").strip()
-    url = (body.get("url") or "").strip()
-    source = (body.get("source") or "").strip() or "extension"
-    explicit_id = (body.get("id") or "").strip()
-    dp = body.get("date_posted")
-    if not title and not desc:
-        return {"ok": False, "error": "The page had no readable title or description yet."}
-    job = {"id": explicit_id or None, "company": company or "(company)",
-           "title": title or "(role)", "location": location, "description": desc,
-           "url": url, "source": source, "date_posted": dp}
-    jid = explicit_id or db.job_hash(job)
-    ranked = {}
-    was_saved = False
-    try:
-        with db.get_conn() as conn:
-            if not conn:
-                return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            db.ensure_user(conn, user_id)
-            ranked = db.get_rankings_map(conn, user_id)
-            was_saved = jid in {s["id"] for s in db.get_saved_jobs(conn, user_id)}
-            db.save_saved_job(conn, user_id, {**job, "id": jid})
-    except Exception:
-        return {"ok": False, "error": "Couldn't save the job. Try again."}
-    # Already verified by the user's AI: return that score, no prompt, no re-charge.
-    if jid in ranked:
-        f = ranked[jid]
-        rb = f.get("ranked_by") or ""
-        return {"ok": True, "id": jid, "duplicate": True, "verified": rb.startswith("ai"),
-                "tier": f.get("tier"), "score": f.get("score"), "ranked_by": rb}
-    # New (or saved-but-unranked): heuristic score now, plus a one-job AI prompt.
-    import score as _score
-    scoring = {**job, "id": jid}
-    try:
-        _score.rank_free([scoring], profile)
-        fit = _score.heuristic_fit(scoring)
-    except Exception:
-        fit = {"tier": "possible", "score": 50, "reasons": [], "matched_skills": [], "missing_skills": []}
-    prompt_job = {"id": jid, "title": job["title"], "company": job["company"],
-                  "location": job["location"], "description": desc[:RANK_DESC_CHARS]}
-    return {"ok": True, "id": jid, "duplicate": was_saved, "verified": False,
-            "tier": fit.get("tier"), "score": fit.get("score"), "ranked_by": "heuristic",
-            "prompt": _build_rank_prompt(profile, [prompt_job])}
-
-
-@app.post("/api/ext/rank")
-async def ext_rank(request: Request):
-    """Store the verified ranking the user's own AI produced for one job that the
-    extension previously ingested. Token-authed and idempotent (a re-rank just
-    overwrites). Marked ranked_by 'ai_ext' so it shows as verified in the feed."""
-    user_id = _user_from_ext_token(request)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="connect the extension to your account first")
-    if not db.has_db():
-        return {"ok": False, "error": "The extension needs the database, which is off right now."}
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    if not isinstance(body, dict):
-        return {"ok": False, "error": "Expected a JSON object."}
-    jid = str(body.get("id", "")).strip()
-    if not jid:
-        return {"ok": False, "error": "Missing job id."}
-    fit = _sanitize_fit(body)
-    if not fit:
-        return {"ok": False, "error": "Couldn't read the ranking your AI returned."}
-    try:
-        with db.get_conn() as conn:
-            if not conn:
-                return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            saved = {s["id"]: s for s in db.get_saved_jobs(conn, user_id)}
-            job = saved.get(jid)
-            if not job:
-                return {"ok": False, "error": "That job is not in your feed yet. Ingest it first."}
-            db.save_ranking(conn, user_id, {
-                "id": jid, "company": job["company"], "title": job["title"],
-                "location": job["location"], "source": job.get("source", "extension"),
-            }, fit, ranked_by="ai_ext")
-    except Exception:
-        return {"ok": False, "error": "Couldn't save the ranking. Try again."}
-    return {"ok": True, "id": jid, "tier": fit.get("tier"), "score": fit.get("score")}
