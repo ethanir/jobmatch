@@ -648,3 +648,228 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
             friendly = ("Couldn't read that file. Try a different format, or use the "
                         "'bring your own AI' option below.")
         return {"ok": False, "error": friendly}
+
+
+# ---------------------------------------------------------------- BYO-AI ranking
+# Let a visitor turn their free keyword-estimate feed into real, verified AI fits
+# using their OWN ChatGPT/Claude, at no cost to the owner. The feed already
+# overlays a user's stored rankings (Phase 3); these two endpoints produce and
+# store them. The prompt format mirrors export_rank.py / import_rank.py so the
+# web flow and the CLI stay consistent.
+RANK_EXPORT_MAX = 40          # most jobs we ask a web chat to score at once
+RANK_IMPORT_MAX = 200         # hard cap on rankings accepted per import call
+_VALID_TIERS = ("strong", "possible", "skip")
+
+
+def _rank_candidates(user_id, profile, limit):
+    """The visitor's top-N jobs to hand their AI: highest free score first,
+    skipping ones they have already had verified, each keyed by the SAME id the
+    feed uses (db.job_hash) so the AI's reply maps straight back."""
+    import score
+    pool = _raw_pool()
+    if not pool:
+        return []
+    ranked = score.rank_free(pool, profile)
+    already = {}
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    already = db.get_rankings_map(conn, user_id)
+        except Exception:
+            already = {}
+    out = []
+    for j in ranked:
+        jid = db.job_hash(j)
+        if jid in already:
+            continue
+        out.append({
+            "id": jid,
+            "company": j.get("company", "") or "",
+            "title": j.get("title", "") or "",
+            "location": j.get("location", "") or "",
+            "description": (j.get("description", "") or "")[:1200],
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _build_rank_prompt(profile, jobs):
+    """The exact prompt a visitor pastes into their own AI. Same shape as
+    export_rank.py: a JSON array of {id, score, tier, reasons, matched_skills,
+    missing_skills}, one object per job."""
+    slim = {
+        "target_titles": profile.get("target_titles"),
+        "years_experience": profile.get("years_experience"),
+        "work_authorization": profile.get("work_authorization"),
+        "requires_sponsorship": profile.get("requires_sponsorship"),
+        "skills": profile.get("skills"),
+        "preferences": profile.get("preferences"),
+        "projects": [p.get("name") for p in (profile.get("projects") or []) if isinstance(p, dict)],
+    }
+    lines = [
+        "You are an expert technical recruiter. Score how well THIS candidate "
+        "fits EACH job below. Be honest and strict: correctly rejecting a bad "
+        "fit is more useful than inflating a score. A new grad applying to a 5+ "
+        "year role is a skip. Senior, staff, lead, or manager titles are a skip "
+        "for an early-career candidate.",
+        "",
+        "Return ONLY a JSON array, one object per job, in this exact shape, and "
+        "nothing else:",
+        '[{"id": "<the id shown>", "score": 0-100, "tier": "strong|possible|skip", '
+        '"reasons": ["short", "short"], "matched_skills": ["..."], "missing_skills": ["..."]}]',
+        "",
+        "Keep the id exactly as shown for each job. Do not use em dashes in your output.",
+        "",
+        "CANDIDATE PROFILE:",
+        json.dumps(slim, indent=2),
+        "",
+        "JOBS TO SCORE:",
+        "",
+    ]
+    for j in jobs:
+        lines.append(f"--- id: {j['id']}")
+        lines.append(f"Title: {j['title']}")
+        lines.append(f"Company: {j['company']}")
+        lines.append(f"Location: {j['location']}")
+        if j["description"]:
+            lines.append(f"Description: {j['description']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _extract_json_array(text):
+    """Pull the first JSON array out of arbitrary pasted text (handles code
+    fences and surrounding chatter). Mirrors import_rank.py."""
+    import re
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+    try:
+        v = json.loads(text)
+        return v if isinstance(v, list) else None
+    except Exception:
+        pass
+    i, j = text.find("["), text.rfind("]")
+    if i != -1 and j != -1 and j > i:
+        try:
+            v = json.loads(text[i:j + 1])
+            return v if isinstance(v, list) else None
+        except Exception:
+            return None
+    return None
+
+
+def _clean_str_list(v, max_items, max_len):
+    """Coerce arbitrary pasted input into a safe list of short strings."""
+    if not isinstance(v, list):
+        return []
+    out = []
+    for x in v:
+        if not isinstance(x, (str, int, float)):
+            continue
+        s = str(x).strip()
+        if s:
+            out.append(s[:max_len])
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _sanitize_fit(r):
+    """Validate one ranking object from the user's AI. Returns a clean fit dict
+    or None if it isn't usable. This is untrusted input, so every field is
+    bounded: tier whitelisted, score clamped to 0-100, lists capped."""
+    if not isinstance(r, dict):
+        return None
+    tier = str(r.get("tier", "")).strip().lower()
+    if tier not in _VALID_TIERS:
+        return None
+    try:
+        score_val = int(round(float(r.get("score", 0))))
+    except (TypeError, ValueError):
+        score_val = 0
+    score_val = max(0, min(100, score_val))
+    return {
+        "tier": tier,
+        "score": score_val,
+        "reasons": _clean_str_list(r.get("reasons"), 8, 300),
+        "matched_skills": _clean_str_list(r.get("matched_skills"), 30, 60),
+        "missing_skills": _clean_str_list(r.get("missing_skills"), 30, 60),
+    }
+
+
+@app.get("/api/rank/byo")
+def rank_export(request: Request):
+    """Return a ready-to-paste prompt (and the jobs it covers) so the current
+    user can rank their top jobs with their own AI for free. Needs a profile."""
+    user_id = request.state.user_id
+    profile = _user_profile(user_id)
+    if not profile:
+        return {"ok": False, "error": "Build a profile first, then you can rank your matches."}
+    jobs = _rank_candidates(user_id, profile, RANK_EXPORT_MAX)
+    if not jobs:
+        return {"ok": False, "error": "No new jobs to rank right now. Your top matches are already verified."}
+    return {"ok": True, "count": len(jobs),
+            "prompt": _build_rank_prompt(profile, jobs),
+            "jobs": [{"id": j["id"], "company": j["company"],
+                      "title": j["title"], "location": j["location"]} for j in jobs]}
+
+
+@app.post("/api/rank/byo")
+async def rank_import(request: Request):
+    """Accept the JSON array the user's AI returned, validate it, and store the
+    rankings as THEIRS (ranked_by 'ai_byoai'). Free, so it is open to visitors;
+    every field is sanitized because this is untrusted input. The stored
+    rankings then overlay this user's feed automatically."""
+    if not db.has_db():
+        return {"ok": False, "error": "Saved rankings need the database, which is off right now."}
+    user_id = request.state.user_id
+    profile = _user_profile(user_id)
+    if not profile:
+        return {"ok": False, "error": "Build a profile first, then you can rank your matches."}
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    # Accept either a raw array, a {"text": "...pasted..."} blob, or a JSON string.
+    rankings = None
+    if isinstance(body, list):
+        rankings = body
+    elif isinstance(body, dict) and isinstance(body.get("text"), str):
+        rankings = _extract_json_array(body["text"])
+    elif isinstance(body, str):
+        rankings = _extract_json_array(body)
+    if not isinstance(rankings, list) or not rankings:
+        return {"ok": False, "error": "Couldn't find the JSON list your AI returned. Paste the whole thing."}
+
+    # Map the user's top candidates by id so we can attach company/title/location
+    # to each stored ranking (and reject ids that aren't real jobs for them).
+    valid = {j["id"]: j for j in _rank_candidates(user_id, profile, RANK_EXPORT_MAX)}
+    saved = 0
+    skipped = 0
+    try:
+        with db.get_conn() as conn:
+            if not conn:
+                return {"ok": False, "error": "Couldn't reach the database. Try again."}
+            db.ensure_user(conn, user_id, is_owner=_is_unlocked(request))
+            for r in rankings[:RANK_IMPORT_MAX]:
+                jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
+                job = valid.get(jid)
+                fit = _sanitize_fit(r)
+                if not job or not fit:
+                    skipped += 1
+                    continue
+                db.save_ranking(conn, user_id, {
+                    "id": jid, "company": job["company"],
+                    "title": job["title"], "location": job["location"],
+                    "source": "byoai",
+                }, fit, ranked_by="ai_byoai")
+                saved += 1
+    except Exception:
+        if saved == 0:
+            return {"ok": False, "error": "Couldn't save those rankings. Try again."}
+    if saved == 0:
+        return {"ok": False, "error": "None of those rankings matched your current jobs. Re-copy the prompt and try again."}
+    return {"ok": True, "saved": saved, "skipped": skipped}

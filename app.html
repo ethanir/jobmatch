@@ -145,6 +145,28 @@
   .modal-btn:hover{opacity:.9}
   .modal-msg{font-family:var(--fu);font-size:13px;font-weight:600;margin-top:14px;min-height:16px;color:#e3804f}
   .modal-x{position:absolute;top:14px;right:18px;font-size:22px;color:var(--mut);background:none;border:none;cursor:pointer;line-height:1}
+  /* BYO-AI ranking */
+  .rankbanner{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line2);border-radius:14px;padding:14px 16px;margin-bottom:16px}
+  .rankbanner .rb-ic{flex-shrink:0;width:34px;height:34px;border-radius:10px;background:var(--greenbg);border:1px solid var(--greenln);display:flex;align-items:center;justify-content:center}
+  .rankbanner .rb-t{flex:1;font-family:var(--fu);font-size:13px;color:var(--ink2);line-height:1.45}
+  .rankbanner .rb-t b{color:var(--ink);font-weight:800}
+  .rankbanner .rb-btn{flex-shrink:0;font-family:var(--fu);font-size:13px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:9px;padding:9px 14px;cursor:pointer;transition:opacity .15s}
+  .rankbanner .rb-btn:hover{opacity:.9}
+  .modal.wide{max-width:560px;text-align:left}
+  .modal.wide h2{text-align:left}
+  .modal.wide p{text-align:left}
+  .ranksteps{counter-reset:rs}
+  .rankstep{display:flex;gap:12px;margin-bottom:14px;align-items:flex-start}
+  .rankstep .rn{flex-shrink:0;width:24px;height:24px;border-radius:99px;background:var(--greenbg);border:1px solid var(--greenln);color:var(--green);font-family:var(--fd);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
+  .rankstep .rt{font-family:var(--fu);font-size:13.5px;color:var(--ink2);line-height:1.5;padding-top:1px}
+  .rankstep .rt b{color:var(--ink);font-weight:700}
+  .rankbox{position:relative;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:14px;margin:6px 0 14px}
+  .rankbox pre{margin:0;font-family:var(--fu);font-size:12px;line-height:1.55;color:var(--mut);white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto}
+  .rankcopy{position:absolute;top:10px;right:10px;font-family:var(--fu);font-size:12px;font-weight:700;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:6px 12px;cursor:pointer}
+  .rankcopy.done{color:#08120c;background:var(--green)}
+  .modal.wide textarea{width:100%;min-height:96px;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px;color:var(--ink);font-family:var(--fu);font-size:12.5px;line-height:1.5;resize:vertical;outline:none}
+  .modal.wide textarea:focus{border-color:var(--greenln)}
+  .modal-msg.ok{color:var(--green)}
 </style>
 </head>
 <body>
@@ -190,6 +212,7 @@
 
 <div class="wrap"><main>
   <section>
+    <div id="rankBannerWrap"></div>
     <div class="filters" id="filters"></div>
     <div class="list" id="list"></div>
   </section>
@@ -212,11 +235,31 @@
   </div>
 </div>
 
+<!-- bring-your-own-AI ranking modal -->
+<div class="modal-bg" id="rankBg" onclick="if(event.target===this)closeRank()">
+  <div class="modal wide" style="position:relative">
+    <button class="modal-x" onclick="closeRank()" aria-label="close">×</button>
+    <h2>Rank these with your own AI</h2>
+    <p>Your feed is keyword estimates right now. Have your own ChatGPT or Claude score your top matches in full, for free. It takes about a minute.</p>
+    <div class="ranksteps" id="rankSteps">
+      <div class="rankstep"><div class="rn">1</div><div class="rt"><b>Copy this prompt</b> and paste it into ChatGPT or Claude (free web version is fine), then send.</div></div>
+      <div class="rankbox">
+        <button class="rankcopy" id="rankCopyBtn" onclick="copyRankPrompt()">Copy</button>
+        <pre id="rankPrompt">Loading your top matches...</pre>
+      </div>
+      <div class="rankstep"><div class="rn">2</div><div class="rt"><b>Copy the JSON</b> your AI returns and <b>paste it below</b>, then save.</div></div>
+      <textarea id="rankIn" placeholder="Paste the JSON array your AI returned here..."></textarea>
+      <button class="modal-btn" id="rankSaveBtn" style="margin-top:14px" onclick="saveRank()">Save my rankings →</button>
+    </div>
+    <div class="modal-msg" id="rankMsg"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false, RANKED_CACHE = 0;
+let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false, RANKED_CACHE = 0, SOURCE = "", RANK_PROMPT = "";
 
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
@@ -310,12 +353,14 @@ async function loadJobs(){
     const r = await fetch(API + "/api/jobs?tier=all");
     const d = await r.json();
     JOBS = d.jobs || [];
+    SOURCE = d.source || "";
     // Land on the first tab that actually has results. A visitor's heuristic
     // feed has no 'strong' roles, so defaulting to the strong tab would look
     // empty; this keeps the default useful for every kind of feed.
     const cc = counts();
     if(JOBS.length && !cc[FILTER]){ FILTER = cc.strong ? "strong" : cc.possible ? "possible" : "all"; }
     document.getElementById("meta").textContent = JOBS.length + " roles";
+    renderRankBanner();
     render();
   }catch(e){
     document.getElementById("list").innerHTML = '<div class="empty">Can\'t reach the server.<br>Start it with <b>uvicorn server:app --port 8000</b>, then reload.</div>';
@@ -323,6 +368,60 @@ async function loadJobs(){
 }
 
 function counts(){const c={all:JOBS.length,strong:0,possible:0,skip:0};JOBS.forEach(j=>{c[j.tier]=(c[j.tier]||0)+1});return c;}
+
+/* ---------- bring-your-own-AI ranking ---------- */
+/* The banner only shows on a visitor's heuristic feed that still has unverified
+   estimates. The owner (paid Refresh) and verified feeds never see it. */
+function renderRankBanner(){
+  const wrap = document.getElementById("rankBannerWrap");
+  if(!wrap) return;
+  const anyEstimate = JOBS.some(j=>!verified(j));
+  if(SOURCE !== "heuristic" || !anyEstimate){ wrap.innerHTML = ""; return; }
+  wrap.innerHTML =
+    '<div class="rankbanner">'+
+      '<div class="rb-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8H20l-4.9 3.6 1.9 5.8L12 14.6 7 18.2l1.9-5.8L4 8.8h6.1z"/></svg></div>'+
+      '<div class="rb-t">These scores are <b>keyword estimates</b>. Have your own AI rank your top matches in full, for free.</div>'+
+      '<button class="rb-btn" onclick="openRank()">Rank with my AI</button>'+
+    '</div>';
+}
+
+function openRank(){
+  document.getElementById("rankBg").classList.add("show");
+  document.getElementById("rankMsg").textContent = "";
+  document.getElementById("rankIn").value = "";
+  const pre = document.getElementById("rankPrompt");
+  if(RANK_PROMPT){ pre.textContent = RANK_PROMPT; return; }
+  pre.textContent = "Loading your top matches...";
+  fetch(API+"/api/rank/byo",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+    if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.textContent = d.prompt; }
+    else{ pre.textContent = ""; document.getElementById("rankMsg").className="modal-msg"; document.getElementById("rankMsg").textContent = d.error || "Couldn't build the prompt."; }
+  }).catch(()=>{ pre.textContent=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
+}
+function closeRank(){ document.getElementById("rankBg").classList.remove("show"); }
+function copyRankPrompt(){
+  if(!RANK_PROMPT) return;
+  copy(RANK_PROMPT);
+  const b=document.getElementById("rankCopyBtn"); b.textContent="Copied"; b.classList.add("done");
+  setTimeout(()=>{b.textContent="Copy"; b.classList.remove("done");},1500);
+}
+function saveRank(){
+  const raw=document.getElementById("rankIn").value.trim();
+  const msg=document.getElementById("rankMsg");
+  if(!raw){ msg.className="modal-msg"; msg.textContent="Paste the JSON your AI returned first."; return; }
+  const btn=document.getElementById("rankSaveBtn"); btn.disabled=true;
+  fetch(API+"/api/rank/byo",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:raw})})
+    .then(r=>r.json()).then(d=>{
+      btn.disabled=false;
+      if(d.ok){
+        msg.className="modal-msg ok";
+        msg.textContent = "Saved "+d.saved+" ranking"+(d.saved===1?"":"s")+". Updating your feed...";
+        RANK_PROMPT=""; // force a fresh prompt next time (those jobs are now verified)
+        setTimeout(()=>{ closeRank(); loadJobs(); toast("Feed updated with your AI rankings"); }, 900);
+      }else{
+        msg.className="modal-msg"; msg.textContent = d.error || "Couldn't save those rankings.";
+      }
+    }).catch(()=>{ btn.disabled=false; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+}
 
 function render(){
   const c = counts();
