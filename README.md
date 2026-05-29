@@ -31,7 +31,7 @@ Jobrolu runs the search the way it actually works: **aggregate** from clean sour
 The whole design exists to keep cost near zero while still using AI where it matters. Jobs flow through stages, and **only one stage costs money**.
 
 ```
-  resume / profile            (onboard.py: PDF/DOCX -> structured JSON via one cheap LLM call)
+  resume / profile            (onboard.py: PDF/DOCX, even scanned -> structured JSON via one cheap LLM call)
         |
         v
   SOURCING                    7 ATS APIs + Adzuna aggregator + curated lists, self-growing
@@ -53,7 +53,7 @@ The whole design exists to keep cost near zero while still using AI where it mat
   ENRICH + DRAFT              strong matches get a one-click LinkedIn recruiter search
         |                     and a personalized outreach email (cached).
         v
-  FEED                        app.html: sign up, then browse YOUR ranked feed,
+  FEED                        app.html: sign in, then browse YOUR ranked feed,
                               filter, search, verify with your own AI, copy the draft.
 ```
 
@@ -97,7 +97,7 @@ Only the top N jobs get AI-read, and at free-scoring time most jobs are ranked o
 
 - **The scan-depth slider** (in the app). A slider sets how many top roles the AI reads on the next refresh, and shows a live estimate of the cost, time, and likely strong matches before you run. Running a refresh needs the access code, but the slider and estimate are visible to everyone. This is the main lever, and it is exactly what reaches the good roles a title-only score under-rated.
 - **`TOP_N`** for command-line runs (see the cost model below).
-- **Bring-your-own-AI, right in the app.** On a personalized feed, "Rank with my AI" hands you a ready-made prompt to paste into your own ChatGPT or Claude; paste the JSON back and your top matches become verified fits, stored as yours, for **$0**. (The `export_rank.py` / `import_rank.py` CLI does the same from the command line.)
+- **Bring-your-own-AI, right in the app.** On a personalized feed, "Rank with my AI" hands you a ready-made prompt to paste into your own ChatGPT or Claude; paste the JSON back and your top matches become verified fits, stored as yours, for **$0**. It works through your top *unverified* roles in batches, so you save one batch and run it again for the next. (The `export_rank.py` / `import_rank.py` CLI does the same from the command line.)
 
 ---
 
@@ -110,13 +110,13 @@ Only the AI fit-rank step costs money. Everything else (sourcing, prefilter, heu
 | 100 (default) | top 100 | ~$1 | ~$0 |
 | 300 | top 300 | ~$2-3 | ~$0 |
 | 800 (deep sweep) | top 800 | ~$8 | ~$0 |
-| 0 + web-AI export | top ~30-40, free web chat | **$0** | $0 |
+| 0 + web-AI export | top 25-50, free web chat | **$0** | $0 |
 
 In the app, the **scan-depth slider** sets this per run and shows a live, cache-aware estimate of cost, time, and likely matches before you commit. Because already-scanned jobs are cached and free, the estimate counts only depth beyond what has already been read, so a repeat at the same depth reads as **~$0**. You pay only when you drag the slider deeper than you have scanned before. The server hard-caps any single run at 2000 jobs as a backstop, and an Anthropic spend cap is the final ceiling.
 
 The **cache** (`jobcache.py`) is what keeps it cheap: each posting has a stable id, and once the AI ranks it, the result is reused forever. Re-runs only pay for jobs that are genuinely new since last time.
 
-Resume parsing on profile upload is one small LLM call (cents). Outreach drafts for strong matches are cents and are also cached.
+Resume parsing on profile upload is one small LLM call (cents). It reads even scanned/image-only PDFs, and infers your likely target roles and location from your experience, which you review and edit before saving. Outreach drafts for strong matches are cents and are also cached.
 
 ---
 
