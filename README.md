@@ -12,6 +12,10 @@
 
 **🌐 Live at [www.jobrolu.com](https://www.jobrolu.com)**
 
+<br>
+
+<img src="assets/hero.png" alt="Jobrolu landing page" width="100%">
+
 </div>
 
 ---
@@ -20,11 +24,27 @@
 
 Most job tools either autofill the same form a hundred times, or dump a feed of loosely-matched listings on you. Neither tells you which roles are actually worth your time, or who to talk to.
 
-**Who it's for:** engineers at every seniority, from new grad to staff, across software, infrastructure, data, ML, and security. The shared pool is broad and each person's feed is narrowed to their own discipline, level, and location, so one account fits a backend new grad and a senior SRE alike.
-
 Jobrolu runs the search the way it actually works: **aggregate** from clean sources, **rank** every role honestly against a real profile, and **hand you the recruiter** to email with a personalized draft. You always do the final send. No spammy auto-apply, no hallucinated matches.
 
 **You make an account first.** Jobrolu ranks against *you*, so you sign up, build a profile (a quick form, a resume, or your own AI), and a feed of the live job pool ranked for you unlocks. Everyone has an equal account; each person gets their own profile and their own ranked feed.
+
+<p align="center">
+  <img src="assets/feed.png" alt="The Jobrolu live feed, ranked for you" width="100%">
+  <br>
+  <sub><i>The live feed: the shared pool ranked against your profile, split into Strong, Possible, and Skip, each with an AI-verified fit score and the reasons behind it.</i></sub>
+</p>
+
+---
+
+## 👤 Who it's for
+
+Jobrolu is built for people going after **tech roles in the US**, and tuned hardest for **software engineering**. It works from new grad to senior, because every role is ranked against the skills and targets in *your* profile, not a fixed template. The shared pool is broad and each person's feed is narrowed to their own discipline, level, and location, so one account fits a backend new grad and a senior SRE alike.
+
+It covers software engineering (backend, frontend, full-stack, web, platform, infrastructure, cloud, systems, DevOps and SRE, QA, data engineering, security, embedded, mobile), data science / ML / AI, data analytics, hardware and electrical, product, and design. Best-matched majors are Computer Science, Computer / Software / Electrical Engineering, Data Science, Information Systems, and related STEM. Coverage is deepest in software engineering today and widens over time.
+
+<p align="center">
+  <img src="assets/audience.png" alt="Who Jobrolu is for" width="100%">
+</p>
 
 ---
 
@@ -37,7 +57,7 @@ The whole design exists to keep cost near zero while still using AI where it mat
         |
         v
   SOURCING                    7 ATS APIs + Adzuna aggregator + curated lists, self-growing
-        |                     company registry. ~8,000+ live roles from 500+ companies.  $0
+        |                     company registry. ~2,000 live roles from 500+ companies.   $0
         v
   PREFILTER                   free, rule-based. Drops non-SWE titles, senior roles,
         |                     wrong locations.                                            $0
@@ -71,6 +91,12 @@ There are two scorers, and they are NOT on the same scale:
 1. **The free heuristic scorer** (`score.py`) reads keywords, the job title, seniority words, and location. It is fast and free, and it runs on *every* job. It is a rough guess. It can give a high number to a job just because the title looks right ("Graduate Software Engineer" scores high on the new-grad and SWE-title signals even if zero of your skills appear in the text).
 
 2. **The AI fit-ranker** (`rank.py`) reads the *full job description* against your profile and produces a careful, considered score with real reasons, gaps, and disqualifiers. Only the top N jobs (default 100) ever reach this step, because it is the only paid step.
+
+<p align="center">
+  <img src="assets/match.png" alt="An AI-verified match with reasons and gaps" width="78%">
+  <br>
+  <sub><i>An AI-verified match: a fit score, why you fit, the skills you match, and the gaps, all read from the full posting.</i></sub>
+</p>
 
 ### The three tiers
 
@@ -156,10 +182,22 @@ API keys live only in the host's private environment, never in this repo.
 
 Two tiers, with a single one-time payment (no subscription).
 
-- **Free.** The live feed of sourced roles, each given a quick heuristic score against the user's profile. Free users can build their profile by filling in the fields by hand. Scores show with a `~` because they are keyword estimates, not an AI read.
-- **Pro (one-time, lifetime).** Unlocks the AI features: **Rank my matches** (the user's own ChatGPT or Claude reads each top role in full and re-ranks the feed by true fit), **resume upload** (drop a PDF and the profile is built automatically), and **building the profile with your own AI**. Priced at `$1.99` for life by default.
+- **Free.** The live feed of sourced roles, each given a quick heuristic score against the user's profile. Free users build their profile by filling in the fields by hand, or by pasting their own AI's description of them. Scores show with a `~` because they are keyword estimates, not an AI read.
+- **Pro (one-time, lifetime).** Unlocks the two AI features: **Rank my matches** (the user's own ChatGPT or Claude reads each top role in full and re-ranks the feed by true fit) and **resume upload** (drop a PDF and the structured profile is built automatically). One-time `$4.99` for life.
 
-The price label and the tier name are both env-configurable in one place: `PRO_PRICE_LABEL` (default `$1.99`) and `PLAN_PRO_NAME` (default `Pro`). Changing `PLAN_PRO_NAME` renames the tier everywhere in the UI, because the name flows from the server to the badge and the upgrade modal.
+The price label and the tier name are both env-configurable in one place: `PRO_PRICE_LABEL` (`$4.99` on the live site) and `PLAN_PRO_NAME` (default `Pro`). Changing `PLAN_PRO_NAME` renames the tier everywhere in the UI, because the name flows from the server to the badge and the upgrade modal.
+
+<p align="center">
+  <img src="assets/profile.png" alt="Build your profile, with resume upload gated for free users" width="100%">
+  <br>
+  <sub><i>On the Build your profile screen, resume upload is locked for free users; the form and the your-own-AI paths stay free.</i></sub>
+</p>
+
+<p align="center">
+  <img src="assets/upgrade.png" alt="The one-time Pro upgrade" width="42%">
+  <br>
+  <sub><i>The one-time upgrade. After paying, the feed unlocks Pro automatically.</i></sub>
+</p>
 
 ### How the payment works (Stripe)
 
@@ -175,7 +213,7 @@ The gate is enforced **on the server**, not just hidden in the UI: `/api/onboard
 
 ### To make it live (config, not code)
 
-1. In Stripe, create a product with a one-time `$1.99` price and a **Payment Link** for it.
+1. In Stripe, create a product with a one-time `$4.99` price and a **Payment Link** for it.
 2. In the link's settings, set the post-payment redirect to `https://jobrolu.com/app?upgraded=1` (no Stripe confirmation page).
 3. In Stripe &rarr; Developers &rarr; Webhooks, add the endpoint `https://jobrolu.com/api/billing/webhook` subscribed to `checkout.session.completed`, and copy its signing secret.
 4. Set the Railway env vars `STRIPE_PAYMENT_LINK` (the link URL) and `STRIPE_WEBHOOK_SECRET` (the `whsec_...` value). Optionally set `PLAN_PRO_NAME` and `PRO_PRICE_LABEL`.
