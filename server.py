@@ -1200,6 +1200,37 @@ def _candidate_brief(profile):
     return line, level
 
 
+def _slim_experience(experience):
+    """Serialize the candidate's work history for the ranking prompt: title,
+    company, dates, and a short summary when present. For an experienced
+    candidate this is the strongest signal there is (domain, real seniority,
+    accomplishments), so we surface it the same way we surface projects. It is
+    absent for most early-career profiles, in which case it is simply omitted and
+    the years-of-experience number plus skills still drive the score."""
+    out = []
+    for e in (experience or []):
+        if isinstance(e, str):
+            s = e.strip()
+            if s:
+                out.append({"title": s})
+            continue
+        if not isinstance(e, dict):
+            continue
+        entry = {}
+        for src, dst in (("title", "title"), ("role", "title"), ("position", "title"),
+                         ("company", "company"), ("employer", "company"),
+                         ("dates", "dates"), ("duration", "dates")):
+            v = e.get(src)
+            if isinstance(v, str) and v.strip() and dst not in entry:
+                entry[dst] = v.strip()
+        summary = e.get("summary") or e.get("description")
+        if isinstance(summary, str) and summary.strip():
+            entry["summary"] = summary.strip()[:300]
+        if entry:
+            out.append(entry)
+    return out
+
+
 def _slim_projects(projects):
     """Serialize the candidate's projects for the ranking prompt. A bare name
     tells the AI nothing, so we include each project's tech stack and a short
@@ -1244,6 +1275,7 @@ def _build_rank_prompt(profile, jobs):
         "requires_sponsorship": profile.get("requires_sponsorship"),
         "skills": profile.get("skills"),
         "preferences": profile.get("preferences"),
+        "experience": _slim_experience(profile.get("experience")),
         "projects": _slim_projects(profile.get("projects")),
     }
     brief, level = _candidate_brief(profile)
