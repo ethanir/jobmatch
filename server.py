@@ -1081,9 +1081,16 @@ async def auth_login(request: Request):
 
 @app.post("/api/auth/logout")
 def auth_logout():
-    """Clear the session cookie."""
+    """Fully sign out on this browser: clear the account session, the owner unlock
+    cookie, and the per-browser id. Clearing jr_access matters because otherwise a
+    browser that had unlocked as owner would still read as Pro (via _is_unlocked)
+    for a freshly created account, and clearing jr_uid prevents an anonymous visit
+    from resolving back to an adopted OWNER_USER_ID. Re-entering the access code
+    re-unlocks owner powers."""
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(SESSION_COOKIE, path="/")
+    resp.delete_cookie("jr_access", path="/")
+    resp.delete_cookie(JR_UID_COOKIE, path="/")
     return resp
 
 
