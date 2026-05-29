@@ -25,6 +25,8 @@
   .sub{font-family:var(--fu);font-size:13.5px;color:var(--mut);margin-left:14px}
   .right{display:flex;align-items:center;gap:12px}
   .meta{font-family:var(--fu);font-size:12.5px;color:var(--mut)}
+  .navlink{font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);text-decoration:none;transition:color .15s}
+  .navlink:hover{color:var(--green)}
   /* unlock control */
   .lockbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:10px 15px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
   .lockbtn:hover{border-color:var(--green);color:var(--green)}
@@ -154,6 +156,7 @@
     </div>
     <div class="right">
       <span class="meta" id="meta"></span>
+      <a class="navlink" href="/start">Profile</a>
       <button class="lockbtn" id="lockBtn" onclick="openUnlock()">
         <svg class="ic-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         <svg class="ic-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

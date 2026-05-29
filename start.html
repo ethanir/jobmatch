@@ -31,8 +31,8 @@
   .head p{font-size:17px;color:var(--ink2);max-width:46ch;margin:0 auto;font-weight:500}
   .head p b{color:var(--ink);font-weight:800}
   /* two cards */
-  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  @media(max-width:720px){.cards{grid-template-columns:1fr}}
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  @media(max-width:760px){.cards{grid-template-columns:1fr}}
   .opt{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;display:flex;flex-direction:column;transition:transform .15s,border-color .15s}
   .opt:hover{transform:translateY(-3px);border-color:var(--accln)}
   .opt .ic{width:48px;height:48px;border-radius:14px;background:var(--accdim);border:1px solid var(--accln);display:flex;align-items:center;justify-content:center;margin-bottom:18px}
@@ -67,6 +67,26 @@
   .msg.ok{color:var(--acc)} .msg.err{color:#e3804f}
   .back{display:inline-block;margin-top:26px;font-size:14px;color:var(--mut);font-weight:600}
   .back:hover{color:var(--acc)}
+  /* manual profile form */
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 18px;margin-top:8px}
+  @media(max-width:560px){.form-grid{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:7px}
+  .field.full{grid-column:1/-1}
+  .field label{font-family:var(--fd);font-size:14.5px;font-weight:600;color:var(--ink)}
+  .field .hint{font-size:12px;color:var(--mut);font-weight:500}
+  .field input[type=text],.field select{background:#0a0d12;border:1px solid var(--line2);border-radius:11px;padding:12px 13px;color:var(--ink);font-family:var(--fb);font-size:14px;outline:none;transition:border-color .15s;width:100%}
+  .field input[type=text]:focus,.field select:focus{border-color:var(--accln)}
+  .field select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237e8a96' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+  .seg{display:flex;gap:8px}
+  .seg label{flex:1;text-align:center;font-family:var(--fb);font-size:13.5px;font-weight:700;color:var(--ink2);background:#0a0d12;border:1px solid var(--line2);border-radius:11px;padding:11px 8px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .seg label:has(input:checked){border-color:var(--accln);color:var(--acc);background:var(--accdim)}
+  .seg input{position:absolute;opacity:0;width:0;height:0}
+  .checkrow{flex-direction:row;align-items:center;gap:10px}
+  .checkrow input{width:17px;height:17px;accent-color:var(--acc);cursor:pointer;flex-shrink:0}
+  .checkrow label{font-size:14px;color:var(--ink2);font-weight:600;cursor:pointer}
+  .ownernote{display:none;font-size:12.5px;color:var(--mut);font-weight:600;margin-top:10px}
+  .ownernote.show{display:block}
+  .opt.locked{opacity:.58}
 </style>
 </head>
 <body>
@@ -84,13 +104,21 @@
 
   <div class="cards">
     <div class="opt">
+      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+      <span class="badge">Easiest, no AI</span>
+      <h3>Fill it in yourself</h3>
+      <p>Tell us the roles you want, your skills, and where you'd work. Takes under a minute, no file and no AI needed. You can edit it any time.</p>
+      <button class="btn p" onclick="toggleForm()">Build my profile →</button>
+    </div>
+    <div class="opt" id="resumeCard">
       <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
       <span class="badge">Fastest</span>
       <h3>Upload your resume</h3>
       <p>Drop in a PDF, DOCX, or TXT. Jobrolu reads it and builds your structured profile automatically. You review and tweak before it runs. Nothing is invented, anything unclear is left for you to fill.</p>
-      <label class="btn p" for="resumeFile">Choose resume file</label>
+      <label class="btn p" id="resumeLabel" for="resumeFile">Choose resume file</label>
       <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md"/>
       <div class="fname" id="fname"></div>
+      <div class="ownernote" id="resumeOwnerNote">Resume reading uses the owner's AI, so it is owner-only for now. Use one of the other two options.</div>
       <div class="msg" id="resumeMsg"></div>
     </div>
 
@@ -117,6 +145,57 @@
     <textarea id="jsonIn" placeholder="Paste the JSON your AI returned here..."></textarea>
     <button class="btn p" style="margin-top:14px;width:auto;padding:13px 26px" onclick="saveProfile()">Save my profile →</button>
     <div class="msg" id="byoMsg"></div>
+  </div>
+
+  <!-- manual form panel -->
+  <div class="panel" id="formPanel">
+    <h3>Build your profile</h3>
+    <p class="lead">Just the essentials. Jobrolu uses these to rank every job for you, and you can change them any time.</p>
+    <div class="form-grid">
+      <div class="field full">
+        <label for="fTitles">Roles you want</label>
+        <span class="hint">Comma separated. These matter most for ranking.</span>
+        <input type="text" id="fTitles" placeholder="Software Engineer, Backend Engineer, New Grad SWE"/>
+      </div>
+      <div class="field full">
+        <label for="fSkills">Your skills</label>
+        <span class="hint">Languages, frameworks, and tools. Comma separated.</span>
+        <input type="text" id="fSkills" placeholder="Python, JavaScript, React, SQL, AWS"/>
+      </div>
+      <div class="field">
+        <label for="fLocs">Preferred locations</label>
+        <span class="hint">Separate multiple with a semicolon.</span>
+        <input type="text" id="fLocs" placeholder="Chicago, IL; New York, NY; Remote"/>
+      </div>
+      <div class="field">
+        <label for="fExp">Experience</label>
+        <span class="hint">Filters out roles above your level.</span>
+        <select id="fExp">
+          <option value="0">Student / new grad</option>
+          <option value="2">1 to 2 years</option>
+          <option value="4">3 to 5 years</option>
+          <option value="7">5+ years</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>Where will you work?</label>
+        <div class="seg">
+          <label><input type="radio" name="fWork" value="remote"/><span>Remote</span></label>
+          <label><input type="radio" name="fWork" value="either" checked/><span>Either</span></label>
+          <label><input type="radio" name="fWork" value="onsite"/><span>Onsite</span></label>
+        </div>
+      </div>
+      <div class="field full">
+        <label for="fName">Your name <span style="color:var(--mut);font-weight:500;font-size:12px">(optional)</span></label>
+        <input type="text" id="fName" placeholder="Jane Doe"/>
+      </div>
+      <div class="field full checkrow">
+        <input type="checkbox" id="fSpon"/>
+        <label for="fSpon">I need visa sponsorship</label>
+      </div>
+    </div>
+    <button class="btn p" id="formSave" style="margin-top:20px;width:auto;padding:13px 28px" onclick="saveForm()">Save and see my feed →</button>
+    <div class="msg" id="formMsg"></div>
   </div>
 
   <a class="back" href="/">← Back</a>
@@ -173,6 +252,88 @@ document.getElementById("resumeFile").addEventListener("change",function(){
       else{msg.className="msg err";msg.textContent=d.error||"Could not read that file.";}
     }).catch(()=>{msg.className="msg err";msg.textContent="Can't reach the server. Start it with: uvicorn server:app --port 8000";});
 });
+
+/* ---------- manual profile form ---------- */
+function val(id){const e=document.getElementById(id);return e?e.value.trim():"";}
+function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
+function splitList(s){return [...new Set((s||"").split(",").map(x=>x.trim()).filter(Boolean))];}
+function splitSemi(s){return [...new Set((s||"").split(";").map(x=>x.trim()).filter(Boolean))];}
+
+function toggleForm(){
+  const p=document.getElementById("formPanel");
+  document.getElementById("panel").classList.remove("show");
+  p.classList.add("show");
+  p.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function buildProfile(){
+  const ws=(document.querySelector('input[name="fWork"]:checked')||{}).value||"either";
+  return {
+    name: val("fName")||null, email:null, phone:null, location:null,
+    work_authorization:null,
+    requires_sponsorship: document.getElementById("fSpon").checked,
+    target_titles: splitList(val("fTitles")),
+    years_experience: parseInt(val("fExp")||"0",10),
+    education: [],
+    skills: {languages: splitList(val("fSkills")), frameworks: [], tools: [], databases: []},
+    projects: [],
+    preferences: {
+      remote_ok: ws==="remote"||ws==="either",
+      onsite_ok: ws==="onsite"||ws==="either",
+      locations: splitSemi(val("fLocs")),
+      min_salary: null
+    },
+    links: {}
+  };
+}
+
+function saveForm(){
+  const msg=document.getElementById("formMsg");
+  if(!splitList(val("fTitles")).length && !splitList(val("fSkills")).length){
+    msg.className="msg err";msg.textContent="Add at least the roles you want or your skills, so jobs can be ranked for you.";return;
+  }
+  const btn=document.getElementById("formSave");btn.disabled=true;
+  fetch(API+"/api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(buildProfile())})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){msg.className="msg ok";msg.textContent="Saved. Taking you to your feed...";setTimeout(()=>location.href="/app",900);}
+      else{btn.disabled=false;msg.className="msg err";msg.textContent=d.error||"Could not save.";}
+    }).catch(()=>{btn.disabled=false;msg.className="msg err";msg.textContent="Can't reach the server. Start it with: uvicorn server:app --port 8000";});
+}
+
+function prefillForm(p){
+  if(!p) return false;
+  setVal("fName", p.name||"");
+  setVal("fTitles", (p.target_titles||[]).join(", "));
+  const sk=p.skills||{};
+  setVal("fSkills", [].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).join(", "));
+  const pref=p.preferences||{};
+  setVal("fLocs", (pref.locations||[]).join("; "));
+  let ws="either";
+  if(pref.remote_ok && !pref.onsite_ok) ws="remote";
+  else if(!pref.remote_ok && pref.onsite_ok) ws="onsite";
+  const r=document.querySelector('input[name="fWork"][value="'+ws+'"]'); if(r) r.checked=true;
+  const ye=p.years_experience; let opt="0";
+  if(ye!=null){ if(ye<=0)opt="0"; else if(ye<=2)opt="2"; else if(ye<=5)opt="4"; else opt="7"; }
+  setVal("fExp", opt);
+  const sp=document.getElementById("fSpon"); if(sp) sp.checked=!!p.requires_sponsorship;
+  return true;
+}
+
+function markResumeOwnerOnly(){
+  const card=document.getElementById("resumeCard"); if(card) card.classList.add("locked");
+  const note=document.getElementById("resumeOwnerNote"); if(note) note.classList.add("show");
+  const lbl=document.getElementById("resumeLabel");
+  if(lbl){ lbl.removeAttribute("for"); lbl.style.cursor="not-allowed"; lbl.onclick=function(e){e.preventDefault();}; }
+}
+
+/* On load: prefill a saved profile (and open the form so it is visible), and
+   hide the owner-only resume path from visitors so they are not shown an error. */
+fetch(API+"/api/profile").then(r=>r.json()).then(d=>{
+  if(d && d.profile && prefillForm(d.profile)){ toggleForm(); }
+}).catch(()=>{});
+fetch(API+"/api/unlock/status").then(r=>r.json()).then(d=>{
+  if(d && !d.unlocked){ markResumeOwnerOnly(); }
+}).catch(()=>{});
 </script>
 </body>
 </html>
