@@ -54,7 +54,7 @@ The whole design exists to keep cost near zero while still using AI where it mat
         |                     and a personalized outreach email (cached).
         v
   FEED                        app.html: sign up, then browse YOUR ranked feed,
-                              filter, verify with your own AI, copy the draft.
+                              filter, search, verify with your own AI, copy the draft.
 ```
 
 ---
@@ -129,6 +129,7 @@ Each person gets their own profile and their own ranked feed. The model is simpl
 - **Verifying is free for you.** "Rank with my AI" lets you turn your top matches into verified fits using your own ChatGPT or Claude, at no cost. Those verified rankings are stored against your profile and overlay your feed.
 - **Refreshing the shared pool is owner-only.** Re-running the full pipeline is the only action that spends the owner's API budget, so it sits behind the access code. Click **Unlock**, enter the code, and Refresh (plus the single-role scan) activates. The unlock is sticky per browser.
 - **A spend cap** set in the Anthropic console is the hard ceiling on the owner's budget.
+- **The shared pool is durable.** Each Refresh writes the resulting pool to Postgres, not just the host's disk, so a redeploy never reverts it. The feed reads the pool from Postgres (falling back to the committed file when the database is empty or off) and caches it in memory, so it is not re-parsed on every request.
 
 Configure on the host (Railway) with env vars:
 
@@ -137,7 +138,7 @@ Configure on the host (Railway) with env vars:
 | `ANTHROPIC_API_KEY` | Required, powers ranking and drafts |
 | `ACCESS_CODE` | The owner unlock code (gate is off if unset) |
 | `COOKIE_SECRET` | Fixed random string so the unlock survives redeploys |
-| `DATABASE_URL` | Postgres for per-user profiles + rankings (with no database set, the site serves the shared file feed and skips the profile gate, for local dev) |
+| `DATABASE_URL` | Postgres for per-user profiles, per-user rankings, and the durable shared job pool (with no database set, the site serves the committed file feed and skips the profile gate, for local dev) |
 | `OWNER_USER_ID` | Optional. A long random id so the owner is one identity across devices |
 | `DB_POOL_MAX` | Optional. Max pooled DB connections (default 10) |
 
@@ -194,7 +195,7 @@ jobrolu/
 ├── onboard.py       resume -> structured profile via LLM
 ├── scan.py          paste one JD/URL -> full pipeline on a single role
 ├── make_ui.py       bake ranked_jobs.json -> standalone viewer.html
-├── db.py            Postgres per-user layer: users, profiles, rankings, usage (pooled, self-healing)
+├── db.py            Postgres per-user layer: users, profiles, rankings, usage, durable job pool (pooled, self-healing)
 ├── landing.html     marketing landing page (served at /)
 ├── start.html       sign up: build your profile (form, resume, or bring-your-own-AI)
 ├── app.html         hosted live feed (profile-gated): your ranked feed, filter, verify, refresh, outreach
