@@ -56,11 +56,14 @@
   .btn.g:hover{border-color:var(--acc);color:var(--acc)}
   .micro{font-size:13px;color:var(--mut);font-weight:600;margin:6px 0 0}
 
-  /* compact stat row */
-  .stats{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:38px}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 26px;min-width:120px}
-  .stat b{display:block;font-family:var(--fd);font-size:28px;font-weight:600;line-height:1;color:var(--ink)}
-  .stat span{font-size:12.5px;color:var(--mut);margin-top:6px;display:block;font-weight:600}
+  /* how-it-works flow (same card aesthetic as before) */
+  .flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:34px;width:100%;max-width:660px}
+  .fstep{flex:1 1 0;min-width:148px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 14px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+  .fstep .fic{width:38px;height:38px;border-radius:11px;background:var(--accdim);border:1px solid #224f38;display:flex;align-items:center;justify-content:center;color:var(--acc)}
+  .fstep .ft{font-family:var(--fd);font-size:14.5px;font-weight:600;color:var(--ink)}
+  .fstep .fs{font-size:11.5px;color:var(--mut);font-weight:600;line-height:1.45}
+  .farrow{flex:0 0 auto;display:flex;align-items:center;color:#3a4654}
+  @media(max-width:560px){.farrow{display:none}}
 
   /* tiny footer line inside viewport */
   .foot{flex-shrink:0;text-align:center;padding:0 0 18px;font-size:12px;color:var(--mut);font-weight:600}
@@ -88,13 +91,26 @@
     <a class="btn p" href="/signin?new=1">Get started free →</a>
     <a class="btn g" href="/signin">Sign in</a>
   </div>
-  <p class="micro rv d4">Create a free account, build your profile, and your matched feed unlocks. Fill in a quick form, upload a resume, or let your own AI describe you. Takes about a minute.</p>
+  <p class="micro rv d4">Free to start, about a minute to set up. You always send the application yourself, never us.</p>
 
-  <div class="stats rv d5">
-    <div class="stat"><b>50k+</b><span>roles scanned</span></div>
-    <div class="stat"><b>500+</b><span>companies</span></div>
-    <div class="stat"><b>AI</b><span>reads every job</span></div>
-    <div class="stat"><b>~$1</b><span>per run</span></div>
+  <div class="flow rv d5">
+    <div class="fstep">
+      <div class="fic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+      <div class="ft">1 · Build your profile</div>
+      <div class="fs">A quick form, your resume, or your own AI.</div>
+    </div>
+    <div class="farrow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+    <div class="fstep">
+      <div class="fic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+      <div class="ft">2 · AI reads every job</div>
+      <div class="fs">Full descriptions from 500+ companies, not keywords.</div>
+    </div>
+    <div class="farrow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+    <div class="fstep">
+      <div class="fic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>
+      <div class="ft">3 · Get real matches</div>
+      <div class="fs">Ranked honestly, with the recruiter to email.</div>
+    </div>
   </div>
 </main>
 

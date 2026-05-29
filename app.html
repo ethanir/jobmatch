@@ -182,6 +182,16 @@
   .rankbanner .rb-t b{color:var(--ink);font-weight:800}
   .rankbanner .rb-btn{flex-shrink:0;font-family:var(--fu);font-size:13px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:9px;padding:9px 14px;cursor:pointer;transition:opacity .15s}
   .rankbanner .rb-btn:hover{opacity:.9}
+  .guide{background:var(--card);border:1px solid var(--line2);border-radius:14px;margin-bottom:16px;overflow:hidden}
+  .guide-row{display:flex;align-items:center;gap:12px;padding:12px 14px}
+  .guide-row + .guide-row{border-top:1px solid var(--line)}
+  .guide-ic{flex-shrink:0;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+  .guide-ic.verify{background:var(--greenbg);border:1px solid var(--greenln);color:var(--green)}
+  .guide-ic.new{background:var(--amberbg);border:1px solid var(--amberln);color:var(--amber)}
+  .guide-tx{flex:1;font-family:var(--fu);font-size:12.5px;color:var(--ink2);line-height:1.45}
+  .guide-tx b{color:var(--ink);font-weight:800}
+  .guide-btn{flex-shrink:0;font-family:var(--fu);font-size:12.5px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:9px;padding:8px 13px;cursor:pointer;transition:opacity .15s;white-space:nowrap}
+  .guide-btn:hover{opacity:.9}
   .modal.wide{max-width:560px;text-align:left}
   .modal.wide h2{text-align:left}
   .modal.wide p{text-align:left}
@@ -250,7 +260,7 @@
       <span class="depth-val" id="depthVal">100</span>
     </div>
     <div class="depth-legend" id="depthLegend"></div>
-    <div class="depth-note"><b>Refresh</b> pulls the newest postings, then the AI reads the top roles in full (this slider sets how many). Green is already read and free; amber is the new depth, the only part that costs. Reading deeper finds a few more strong matches, with a steep drop-off.</div>
+    <div class="depth-note"><b>Refresh</b> pulls the newest openings into your feed; this slider only sets how many of the top the AI reads in full. Green is already read and free; amber is the new depth, the only part that costs. The latest jobs come in at any depth, so you go deeper only to verify more of them.</div>
   </div></div></div>
   <div class="wrap"><div class="prog" id="prog"><div class="prog-in">
     <div class="prog-row"><span class="prog-stage" id="progStage">Starting…</span><span class="prog-detail" id="progDetail"></span></div>
@@ -484,14 +494,35 @@ function counts(){const src=searchedJobs();const c={all:src.length,strong:0,poss
 function renderRankBanner(){
   const wrap = document.getElementById("rankBannerWrap");
   if(!wrap) return;
-  const anyEstimate = JOBS.some(j=>!verified(j));
-  if(SOURCE !== "heuristic" || !anyEstimate){ wrap.innerHTML = ""; return; }
-  wrap.innerHTML =
-    '<div class="rankbanner">'+
-      '<div class="rb-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8H20l-4.9 3.6 1.9 5.8L12 14.6 7 18.2l1.9-5.8L4 8.8h6.1z"/></svg></div>'+
-      '<div class="rb-t">These scores are <b>keyword estimates</b>. Have your own AI rank your top matches in full, for free.</div>'+
-      '<button class="rb-btn" onclick="openRank()">Rank with my AI</button>'+
+  // Only on the personalized account feed (not the local/file feed).
+  if(SOURCE !== "heuristic"){ wrap.innerHTML = ""; return; }
+  const total = JOBS.length;
+  const un = JOBS.filter(j=>!verified(j)).length;
+  const check='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const refresh='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+  // Row 1: verify what you already have (free). Adapts to how many are estimates.
+  let verifyRow = "";
+  if(un > 0){
+    verifyRow =
+      '<div class="guide-row">'+
+        '<span class="guide-ic verify">'+check+'</span>'+
+        '<span class="guide-tx"><b>Verify your matches.</b> '+un+' of your '+total+' roles are keyword estimates. Have your own ChatGPT or Claude confirm them in full, free. This reads roles you already have, it does not pull new ones.</span>'+
+        '<button class="guide-btn" onclick="openRank()">Rank with my AI</button>'+
+      '</div>';
+  } else if(total > 0){
+    verifyRow =
+      '<div class="guide-row">'+
+        '<span class="guide-ic verify">'+check+'</span>'+
+        '<span class="guide-tx"><b>Your matches are verified.</b> All '+total+' have been read in full by your AI. To look for newer roles, refresh below.</span>'+
+      '</div>';
+  }
+  // Row 2: how new openings get in (always shown so the model is clear).
+  const newRow =
+    '<div class="guide-row">'+
+      '<span class="guide-ic new">'+refresh+'</span>'+
+      '<span class="guide-tx"><b>Find new openings.</b> The Refresh button pulls the latest postings into your feed; the scan-depth slider above sets how many the AI reads. Running it needs the access code.</span>'+
     '</div>';
+  wrap.innerHTML = '<div class="guide">'+verifyRow+newRow+'</div>';
 }
 
 let RANK_N = 25;
