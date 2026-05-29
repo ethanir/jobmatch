@@ -251,6 +251,7 @@ const SCHEMA = `{
   "work_authorization": null, "requires_sponsorship": null,
   "target_titles": [], "years_experience": null,
   "education": [{"degree": null, "school": null, "dates": null}],
+  "experience": [{"title": null, "company": null, "dates": null, "summary": null}],
   "skills": {"languages": [], "frameworks": [], "tools": [], "databases": []},
   "projects": [{"name": null, "stack": [], "summary": null}],
   "preferences": {"remote_ok": null, "onsite_ok": null, "locations": [], "min_salary": null},
@@ -333,7 +334,7 @@ function buildProfile(){
   // are preserved; otherwise start blank for a pure manual entry.
   const base = PARSED ? JSON.parse(JSON.stringify(PARSED)) : {
     name:null, email:null, phone:null, location:null, work_authorization:null,
-    education:[], projects:[], links:{}, skills:{}, preferences:{}
+    education:[], experience:[], projects:[], links:{}, skills:{}, preferences:{}
   };
   base.name = val("fName")||null;
   base.email = val("fEmail")||null;

@@ -9,6 +9,7 @@ PROFILE_SCHEMA = """{
   "work_authorization": null, "requires_sponsorship": null,
   "target_titles": [], "years_experience": null,
   "education": [{"degree": null, "school": null, "dates": null}],
+  "experience": [{"title": null, "company": null, "dates": null, "summary": null}],
   "skills": {"languages": [], "frameworks": [], "tools": [], "databases": []},
   "projects": [{"name": null, "stack": [], "summary": null}],
   "preferences": {"remote_ok": null, "onsite_ok": null, "locations": [], "min_salary": null},
