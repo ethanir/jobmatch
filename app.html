@@ -158,6 +158,9 @@
   pre.email{margin:0;font-family:var(--fm);font-size:14px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-word}
   .apply{display:block;text-align:center;text-decoration:none;font-family:var(--fu);font-size:15px;font-weight:700;padding:13px 18px;border-radius:12px;background:var(--green);color:#08120c;margin-top:16px}
   .empty{padding:60px 24px;text-align:center;color:var(--mut);font-family:var(--fu)}
+  .loadmore{width:100%;margin:14px 0 4px;padding:13px;background:var(--card);border:1px solid var(--line2);border-radius:12px;color:var(--ink2);font-family:var(--fu);font-size:13px;font-weight:700;cursor:pointer;transition:border-color .15s,color .15s}
+  .loadmore:hover{border-color:var(--green);color:var(--green)}
+  .loadmore b{color:var(--mut);font-weight:600}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:#1b212b;color:var(--ink);border:1px solid var(--line2);font-family:var(--fu);font-size:13.5px;padding:11px 18px;border-radius:10px;transition:.25s;pointer-events:none;z-index:50}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   /* unlock modal */
@@ -291,7 +294,8 @@
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "";
+let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "", PAGE = 1;
+const PAGE_SIZE = 60;
 
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
@@ -337,6 +341,7 @@ function searchedJobs(){
 }
 function setSearch(v){
   SEARCH = (v||"").toLowerCase().trim();
+  PAGE = 1;
   document.getElementById("searchClear").classList.toggle("show", !!SEARCH);
   render();
 }
@@ -502,13 +507,17 @@ function render(){
     return;
   }
   if(!SELECTED || !rows.find(j=>j.id===SELECTED)) SELECTED = rows[0].id;
-  list.innerHTML = rows.map(j=>`
+  const shown = rows.slice(0, PAGE*PAGE_SIZE);
+  list.innerHTML = shown.map(j=>`
     <div class="row ${j.id===SELECTED?'sel':''}" onclick="select('${j.id}')">
       <span class="scorebadge ${badgeClass(j)}">${badgeText(j)}</span>
       <div class="co">${esc(j.company)}${j.is_new?'<span class="new">NEW</span>':''}</div>
       <div class="ti">${esc(j.title)}</div>
       <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span></div>
-    </div>`).join("");
+    </div>`).join("")
+    + (rows.length>shown.length
+        ? '<button class="loadmore" onclick="showMore()">Show more <b>('+(rows.length-shown.length)+' left)</b></button>'
+        : "");
   renderDetail(rows.find(j=>j.id===SELECTED));
 }
 
@@ -587,7 +596,8 @@ function personalize(id){
 }
 function copyEl(id,btn){const el=document.getElementById(id);if(!el)return;copy(el.textContent);const b=document.getElementById(btn);b.classList.add("done");b.innerHTML=check();toast("Copied");setTimeout(()=>{b.classList.remove("done");b.innerHTML=clip();},1500);}
 function select(id){SELECTED=id;render();}
-function setFilter(f){FILTER=f;SELECTED=null;render();}
+function setFilter(f){FILTER=f;SELECTED=null;PAGE=1;render();}
+function showMore(){PAGE++;render();}
 function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
 async function loadMe(){

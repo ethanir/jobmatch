@@ -281,7 +281,12 @@ def _pool_list():
 def _persist_pool():
     """After a refresh, copy the freshly written ranked file into Postgres so it
     survives redeploys, and refresh the in-memory cache. Best-effort: never
-    raises, so it can never break the refresh that produced the data."""
+    raises, so it can never break the refresh that produced the data.
+
+    Safety: if a scan comes back with dramatically fewer jobs than are already
+    stored (a transient sourcing failure, say), keep the bigger stored pool rather
+    than overwriting it with a thin one. New jobs only ever add; a bad day cannot
+    empty the feed."""
     if not db.has_db():
         return
     try:
@@ -291,6 +296,14 @@ def _persist_pool():
             jobs = json.load(f)
         with db.get_conn() as conn:
             if conn:
+                existing = 0
+                try:
+                    meta = db.pool_meta(conn)
+                    existing = meta[0] if meta else 0
+                except Exception:
+                    existing = 0
+                if existing > 200 and len(jobs) < existing * 0.4:
+                    return                  # suspiciously thin pull, keep what we have
                 db.save_pool(conn, jobs)
         # Drop the cache token so the next read reloads from the DB.
         with _POOL_LOCK:
@@ -306,10 +319,10 @@ def _persist_pool():
 # AI rankings always show immediately. BYO-AI export only ever offers the top
 # RANK_EXPORT_MAX jobs, so a job a user can verify is always inside this slice;
 # capping it can never hide a verified match.
-BASE_KEEP = 400                       # most jobs the feed keeps after ranking
+BASE_KEEP = 2000                      # most jobs the feed keeps after ranking
 _BASE_CACHE = {}                      # profile-hash -> {"token","jobs"}
 _BASE_LOCK = threading.Lock()
-_BASE_MAX_PROFILES = 32               # bound memory: keep recent profiles only
+_BASE_MAX_PROFILES = 12               # bound memory: keep recent profiles only
 
 
 def _pool_token():
@@ -364,7 +377,7 @@ def _scored_base(profile):
             "location": j.get("location", "") or "",
             "url": j.get("url", "") or "",
             "source": j.get("source", "") or j.get("ats", "") or "",
-            "description": (j.get("description", "") or "")[:1200],
+            "description": (j.get("description", "") or "")[:700],
             "is_new": j.get("is_new", False),
             "_score": j.get("_score", 0),
             "_matched": j.get("_matched", []),
