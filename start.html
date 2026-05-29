@@ -92,23 +92,23 @@
 <body>
 <nav>
   <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
-  <div class="nav-r"><a href="/app">Skip to the app →</a></div>
+  <div class="nav-r"><a href="/">← Home</a></div>
 </nav>
 
 <div class="wrap">
   <div class="head">
     <div class="step-dots"><span class="sd on"></span><span class="sd"></span><span class="sd"></span></div>
-    <h1>Let's build your profile.</h1>
-    <p>Jobrolu ranks jobs against <b>you</b>, so first it needs to know your stack, experience, and what you're looking for. Pick the way that's easiest. Takes about a minute.</p>
+    <h1>Sign up to see your matches.</h1>
+    <p>Jobrolu ranks every job against <b>you</b>, so it needs your background first. Build your profile below and your feed unlocks. Takes about a minute, and it is free.</p>
   </div>
 
   <div class="cards">
     <div class="opt">
       <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
-      <span class="badge">Easiest, no AI</span>
+      <span class="badge">Recommended, no AI</span>
       <h3>Fill it in yourself</h3>
-      <p>Tell us the roles you want, your skills, and where you'd work. Takes under a minute, no file and no AI needed. You can edit it any time.</p>
-      <button class="btn p" onclick="toggleForm()">Build my profile →</button>
+      <p>Tell us the roles you want, your skills, and where you'd work. The quickest way, no file and no AI needed. You can edit it any time. The form is right below.</p>
+      <button class="btn p" onclick="toggleForm()">Go to the form ↓</button>
     </div>
     <div class="opt" id="resumeCard">
       <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
@@ -189,6 +189,10 @@
         <label for="fName">Your name <span style="color:var(--mut);font-weight:500;font-size:12px">(optional)</span></label>
         <input type="text" id="fName" placeholder="Jane Doe"/>
       </div>
+      <div class="field full">
+        <label for="fEmail">Email <span style="color:var(--mut);font-weight:500;font-size:12px">(optional)</span></label>
+        <input type="text" id="fEmail" placeholder="you@email.com"/>
+      </div>
       <div class="field full checkrow">
         <input type="checkbox" id="fSpon"/>
         <label for="fSpon">I need visa sponsorship</label>
@@ -263,13 +267,14 @@ function toggleForm(){
   const p=document.getElementById("formPanel");
   document.getElementById("panel").classList.remove("show");
   p.classList.add("show");
-  p.scrollIntoView({behavior:"smooth",block:"nearest"});
+  document.getElementById("fTitles").focus({preventScroll:true});
+  p.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
 function buildProfile(){
   const ws=(document.querySelector('input[name="fWork"]:checked')||{}).value||"either";
   return {
-    name: val("fName")||null, email:null, phone:null, location:null,
+    name: val("fName")||null, email: val("fEmail")||null, phone:null, location:null,
     work_authorization:null,
     requires_sponsorship: document.getElementById("fSpon").checked,
     target_titles: splitList(val("fTitles")),
@@ -303,6 +308,7 @@ function saveForm(){
 function prefillForm(p){
   if(!p) return false;
   setVal("fName", p.name||"");
+  setVal("fEmail", p.email||"");
   setVal("fTitles", (p.target_titles||[]).join(", "));
   const sk=p.skills||{};
   setVal("fSkills", [].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).join(", "));
@@ -326,11 +332,14 @@ function markResumeOwnerOnly(){
   if(lbl){ lbl.removeAttribute("for"); lbl.style.cursor="not-allowed"; lbl.onclick=function(e){e.preventDefault();}; }
 }
 
-/* On load: prefill a saved profile (and open the form so it is visible), and
-   hide the owner-only resume path from visitors so they are not shown an error. */
+/* On load: the fill-in form is the primary sign-up path, so open it right away.
+   If the person already has a profile, prefill it so this doubles as the editor.
+   Hide the owner-only resume path from visitors so they are not shown an error. */
+function openForm(){ document.getElementById("formPanel").classList.add("show"); }
 fetch(API+"/api/profile").then(r=>r.json()).then(d=>{
-  if(d && d.profile && prefillForm(d.profile)){ toggleForm(); }
-}).catch(()=>{});
+  if(d && d.profile){ prefillForm(d.profile); }
+  openForm();
+}).catch(()=>{ openForm(); });
 fetch(API+"/api/unlock/status").then(r=>r.json()).then(d=>{
   if(d && !d.unlocked){ markResumeOwnerOnly(); }
 }).catch(()=>{});

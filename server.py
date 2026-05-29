@@ -343,22 +343,26 @@ def list_jobs(request: Request, tier: str = "all"):
         pass
     if _is_unlocked(request):
         # Owner: the AI-ranked feed (their Postgres rankings if any, else the
-        # shared file). Unchanged from before.
+        # shared file).
         data, source = _load(user_id, tier)
     else:
-        # Visitor: if they have built a profile, serve a feed ranked for THEM
-        # (free heuristic over the shared job pool, plus any of their own
-        # verified rankings). If they have no profile yet, serve the shared
-        # sample feed exactly like before, so nothing regresses.
-        prof = _user_profile(user_id)
-        if prof:
-            try:
-                data, source = _visitor_feed(user_id, prof, tier)
-            except Exception:
-                data, source = _load(user_id, tier)
-        else:
+        # Visitor. A profile is now required to see the feed, but only when a
+        # database exists to hold profiles. With no database (local/dev) there
+        # are no per-user profiles, so we keep serving the shared file feed
+        # rather than locking everyone out.
+        if not db.has_db():
             data, source = _load(user_id, tier)
-    return {"source": source, "count": len(data), "jobs": data}
+            return {"source": source, "count": len(data), "jobs": data, "needs_profile": False}
+        prof = _user_profile(user_id)
+        if not prof:
+            return {"source": "none", "count": 0, "jobs": [], "needs_profile": True}
+        try:
+            data, source = _visitor_feed(user_id, prof, tier)
+        except Exception:
+            # A malformed profile should not expose the owner's feed; show an
+            # empty personalized feed rather than the shared sample.
+            data, source = [], "heuristic"
+    return {"source": source, "count": len(data), "jobs": data, "needs_profile": False}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -633,6 +637,16 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
         path = os.environ.get("PROFILE_PATH", "my_profile.json")
         profile = onboard_mod.onboard(tmp_path, path)
         os.unlink(tmp_path)
+        # Also store it as this user's per-user profile, so the feed (which reads
+        # the per-user profile) and the form / BYO-AI paths all save the same way.
+        if db.has_db():
+            try:
+                with db.get_conn() as conn:
+                    if conn:
+                        db.ensure_user(conn, request.state.user_id, is_owner=_is_unlocked(request))
+                        db.save_profile(conn, request.state.user_id, profile)
+            except Exception:
+                pass
         return {"ok": True, "saved": path, "name": profile.get("name")}
     except Exception as e:
         msg = str(e)

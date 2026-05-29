@@ -352,6 +352,8 @@ async function loadJobs(){
   try{
     const r = await fetch(API + "/api/jobs?tier=all");
     const d = await r.json();
+    // Feed is gated: no profile means sign up first. The owner is never gated.
+    if(d.needs_profile){ location.replace("/start"); return; }
     JOBS = d.jobs || [];
     SOURCE = d.source || "";
     // Land on the first tab that actually has results. A visitor's heuristic

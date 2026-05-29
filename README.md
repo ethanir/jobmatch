@@ -22,6 +22,8 @@ Most job tools either autofill the same form a hundred times, or dump a feed of 
 
 Jobrolu runs the search the way it actually works: **aggregate** from clean sources, **rank** every role honestly against a real profile, and **hand you the recruiter** to email with a personalized draft. You always do the final send. No spammy auto-apply, no hallucinated matches.
 
+**You sign up first.** Jobrolu ranks against *you*, so it starts by taking your profile (a quick form, a resume, or your own AI), then unlocks a feed of the live job pool ranked for you. Each person gets their own profile and their own ranked feed.
+
 ---
 
 ## 🧠 How it works (the funnel)
@@ -51,7 +53,8 @@ The whole design exists to keep cost near zero while still using AI where it mat
   ENRICH + DRAFT              strong matches get a one-click LinkedIn recruiter search
         |                     and a personalized outreach email (cached).
         v
-  FEED                        app.html: browse, filter, copy the draft, open the posting.
+  FEED                        app.html: sign up, then browse YOUR ranked feed,
+                              filter, verify with your own AI, copy the draft.
 ```
 
 ---
@@ -94,7 +97,7 @@ Only the top N jobs get AI-read, and at free-scoring time most jobs are ranked o
 
 - **The scan-depth slider** (in the app, owner-only). After unlocking, a slider sets how many top roles the AI reads on the next refresh, and shows a live estimate of the cost, time, and likely strong matches before you run. This is the main lever, and it is exactly what reaches the good roles a title-only score under-rated.
 - **`TOP_N`** for command-line runs (see the cost model below).
-- **Bring-your-own-AI** (`export_rank.py` / `import_rank.py`), which ranks your batch for **$0** in a free web chat.
+- **Bring-your-own-AI, right in the app.** On a personalized feed, "Rank with my AI" hands you a ready-made prompt to paste into your own ChatGPT or Claude; paste the JSON back and your top matches become verified fits, stored as yours, for **$0**. (The `export_rank.py` / `import_rank.py` CLI does the same from the command line.)
 
 ---
 
@@ -119,20 +122,22 @@ Resume parsing on profile upload is one small LLM call (cents). Outreach drafts 
 
 ## 🔐 Access and budget protection
 
-The whole site runs on a single profile and one shared feed (everyone sees the same ranked jobs). The protection model is simple and per-action:
+Each person gets their own profile and their own ranked feed. The model is simple:
 
-- **Browsing the feed is open to everyone.** No code needed to view roles, filters, fit reasons, or drafts.
-- **Refreshing is owner-only.** Refresh re-runs the pipeline and is the only action that spends the API budget, so it sits behind an access code. Click **Unlock**, enter the code, and the Refresh button activates (it shows a highlighted "Unlocked" state). The same gate also protects resume upload, profile save, and single-role scan, since those spend or change data too.
-- **A spend cap** set in the Anthropic console is the hard ceiling and the real backstop.
+- **You sign up first.** Building a profile (a quick form, a resume upload, or letting your own AI describe you) is what unlocks the feed. Without a profile you are sent to sign up, so nobody lands on a wall of unranked jobs or sees someone else's scores.
+- **Your feed is yours.** Once you have a profile, you see the shared job pool ranked for *you* by the free heuristic, plus any roles you have personally verified. New jobs show as estimates until you verify them.
+- **Verifying is free for you.** "Rank with my AI" lets you turn your top matches into verified fits using your own ChatGPT or Claude, at no cost. Those verified rankings are stored against your profile and overlay your feed.
+- **Refreshing the shared pool is owner-only.** Re-running the full pipeline is the only action that spends the owner's API budget, so it sits behind the access code. Click **Unlock**, enter the code, and Refresh (plus the single-role scan) activates. The unlock is sticky per browser.
+- **A spend cap** set in the Anthropic console is the hard ceiling on the owner's budget.
 
 Configure on the host (Railway) with env vars:
 
 | Variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | Required, powers ranking and drafts |
-| `ACCESS_CODE` | The unlock code (gate is off if unset) |
+| `ACCESS_CODE` | The owner unlock code (gate is off if unset) |
 | `COOKIE_SECRET` | Fixed random string so the unlock survives redeploys |
-| `DATABASE_URL` | Postgres for the per-user backend (file feed is used if unset) |
+| `DATABASE_URL` | Postgres for per-user profiles + rankings (with no database set, the site serves the shared file feed and skips the profile gate, for local dev) |
 | `OWNER_USER_ID` | Optional. A long random id so the owner is one identity across devices |
 | `DB_POOL_MAX` | Optional. Max pooled DB connections (default 10) |
 
@@ -189,10 +194,11 @@ jobrolu/
 ├── onboard.py       resume -> structured profile via LLM
 ├── scan.py          paste one JD/URL -> full pipeline on a single role
 ├── make_ui.py       bake ranked_jobs.json -> standalone viewer.html
+├── db.py            Postgres per-user layer: users, profiles, rankings, usage (pooled, self-healing)
 ├── landing.html     marketing landing page (served at /)
-├── start.html       onboarding (resume upload or bring-your-own-AI)
-├── app.html         hosted live feed: filter, refresh, unlock, outreach
-├── server.py        FastAPI: pages + /api/* (open feed, owner-gated actions)
+├── start.html       sign up: build your profile (form, resume, or bring-your-own-AI)
+├── app.html         hosted live feed (profile-gated): your ranked feed, filter, verify, refresh, outreach
+├── server.py        FastAPI: pages + /api/* (per-user profiles + feeds, owner-gated refresh)
 ├── prompts.py       profile schema + all LLM prompts (the heart)
 └── BUILD_SPEC.md    full spec, anyone can rebuild the product from it
 ```

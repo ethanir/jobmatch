@@ -4,7 +4,7 @@
 
 **Where the project stands, what's left, and how it ships.**
 
-![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-next-orange) ![v3](https://img.shields.io/badge/v3%20launch-planned-blue)
+![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-ongoing-orange) ![v3](https://img.shields.io/badge/v3%20launch-shipped-brightgreen) ![accounts](https://img.shields.io/badge/per--user%20accounts-live-brightgreen)
 
 </div>
 
@@ -57,7 +57,8 @@ That's the whole remaining plan. Everything else is polish.
 | ✅ | Scan-any-role - paste a JD/URL for a one-off fit-rank + draft |
 | ✅ | Hosted live feed - `server.py` + `app.html`: a Refresh button re-runs the pipeline in the background with a live progress bar; new roles append and are flagged, old roles persist. (This is the foundation the v3 hosted version builds on.) |
 | ✅ | Smart free pre-filter - sharp heuristic (exact-title, new-grad, SWE family, seniority penalty, location, recency, skill saturation) so the top-N forwarded to the LLM is quality, not look-alikes. |
-| ✅ | Bring-your-own-AI ranking - `export_rank.py` + `import_rank.py` rank your top batch for $0 using the free web Claude/ChatGPT. |
+| ✅ | Bring-your-own-AI ranking - `export_rank.py` + `import_rank.py` rank your top batch for $0 using the free web Claude/ChatGPT, and the same flow is built into the app ("Rank with my AI"). |
+| ✅ | Per-user profiles + ranked feeds - sign up (form / resume / your own AI), then the shared pool is scored against your profile for $0 and your own verified rankings overlay it. Feed is profile-gated. |
 
 **Honest note on Apollo:** contact lookup is wired in, but Apollo's people-search API is gated behind their paid Organization tier (confirmed: free/trial keys return `API_INACCESSIBLE`). The tool detects this and falls back to the free LinkedIn flow automatically. **Do not pay for Apollo for this** - the volume need (a few recruiters) doesn't justify it; LinkedIn covers it free.
 
@@ -115,8 +116,8 @@ large-enterprise employers that were previously invisible.
 |---|---|---|
 | 4 | **Name + domain** | ✅ Done. **Jobrolu**, live at jobrolu.com. |
 | 5 | **Landing page** | ✅ Done. `landing.html`, dark single-screen, served at `/`. |
-| 6 | **Deploy the hosted app** | ✅ Done. Live on Railway at www.jobrolu.com, deployed from this repo. Invite-only via a server-side access code, with per-IP rate limiting and a spend cap protecting the AI budget. |
-| 7 | **Per-user accounts (in progress)** | Postgres schema is live (Phase 1) and every visitor now gets a browser-id and a users row (Phase 2). Still to come: per-user profiles and per-user ranked feeds (Phase 3), then per-user spend limits (Phase 4). |
+| 6 | **Deploy the hosted app** | ✅ Done. Live on Railway at www.jobrolu.com, deployed from this repo. Per-user profiles gate the feed; the owner's paid Refresh sits behind a server-side access code, with a spend cap protecting the AI budget. |
+| 7 | **Per-user accounts** ✅ live | Postgres schema (Phase 1) and a per-browser identity + users row (Phase 2) are live. Per-user profiles and per-user ranked feeds (Phase 3) shipped: each visitor scores the shared pool against their own profile for $0, with their own verified rankings overlaid. The feed is now **profile-gated**: you sign up first (a quick fill-in form, a resume, or your own AI), and only then does your feed unlock. **Bring-your-own-AI ranking is in the app**: "Rank with my AI" turns your top matches into verified fits using your own ChatGPT/Claude, stored as yours, for $0. Still optional later: per-user spend limits so the owner's paid actions could be opened to visitors, and moving the owner's refresh to write rankings into Postgres for durability. |
 
 ### Naming: settled
 The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlist, Rolescout, Fitscore, Rolu) are kept here only as history.
@@ -129,11 +130,11 @@ The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlis
 
 - [~] Registry expanded to several thousand companies (v2.1) - `seed.py` built; feed it bigger lists
 - [x] Workday connector live (v2.2)
-- [ ] Aggregator feed integrated + deduped (v2.3)
-- [ ] Final name chosen
-- [ ] Domain purchased
-- [ ] Landing page live
-- [ ] Hosted viewer with accounts
+- [x] Aggregator feed integrated + deduped (v2.3, Adzuna)
+- [x] Final name chosen (Jobrolu)
+- [x] Domain purchased (jobrolu.com)
+- [x] Landing page live
+- [x] Hosted feed with per-user accounts (sign up, per-user profiles + ranked feeds, in-app bring-your-own-AI ranking)
 
 ---
 
