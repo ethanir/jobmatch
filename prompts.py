@@ -17,9 +17,20 @@ PROFILE_SCHEMA = """{
 
 # 1. Resume text -> structured profile JSON. Run on an uploaded resume.
 RESUME_TO_PROFILE = """Extract a structured candidate profile from the resume below.
-Output ONLY valid JSON matching this exact schema. Do NOT infer or invent anything
-not present in the resume. Use null for missing fields. Never fabricate employers,
-dates, numbers, or skills.
+Output ONLY valid JSON matching this exact schema, and nothing else.
+
+Rules:
+- Never fabricate facts. Employers, dates, numbers, schools, and skills must come
+  straight from the resume. Use null or an empty list when a fact is not present.
+- DO fill "target_titles": infer 2 to 4 realistic job titles this person should
+  apply to, based on their most recent role, their level of education, and the
+  focus of their experience and projects. For example, a CS new grad with backend
+  and full-stack projects gives "Software Engineer", "Backend Engineer", "New Grad
+  Software Engineer".
+- DO fill locations: take the candidate's own city and state from the header,
+  education, or experience, and put it in BOTH "location" and
+  "preferences.locations". Set "remote_ok" and "onsite_ok" to true unless the
+  resume clearly states otherwise.
 
 SCHEMA:
 {schema}

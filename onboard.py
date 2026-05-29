@@ -1,5 +1,5 @@
 """
-Onboarding — turn an uploaded resume into a structured profile.
+Onboarding: turn an uploaded resume into a structured profile.
 
 Flow:
     file (pdf / docx / txt)  ->  extract_text()  ->  parse_resume() [LLM]  ->  profile JSON
@@ -80,10 +80,56 @@ def parse_resume(resume_text, client=None):
         return _empty_profile()
 
 
+def parse_resume_pdf(path, client=None):
+    """Parse a PDF resume by sending the file itself to the model. This handles
+    image-only / scanned PDFs that have no extractable text layer (pypdf returns
+    nothing for those), since the model can read the document directly. Degrades
+    to an empty schema if there is no API key or the call fails."""
+    if client is None:
+        key = os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            print("  [no ANTHROPIC_API_KEY] returning empty profile for manual entry.")
+            return _empty_profile()
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+
+    import base64
+    try:
+        with open(path, "rb") as f:
+            data = base64.standard_b64encode(f.read()).decode()
+        prompt = RESUME_TO_PROFILE.format(schema=PROFILE_SCHEMA, resume_text="(read the attached PDF)")
+        msg = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=1500,
+            messages=[{"role": "user", "content": [
+                {"type": "document",
+                 "source": {"type": "base64", "media_type": "application/pdf", "data": data}},
+                {"type": "text", "text": prompt},
+            ]}],
+        )
+    except Exception as e:
+        print(f"  ! PDF read failed ({e}); returning empty profile.")
+        return _empty_profile()
+    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+    text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        print("  ! could not parse LLM output; returning empty profile.")
+        return _empty_profile()
+
+
 def onboard(path, out_path="my_profile.json"):
-    """Full path: file -> profile JSON saved to disk. Returns the profile dict."""
+    """Full path: file -> profile JSON saved to disk. Returns the profile dict.
+    If a PDF has no extractable text (e.g. a scanned/image-only export), fall back
+    to letting the model read the PDF directly rather than returning a blank form."""
     text = extract_text(path)
-    profile = parse_resume(text)
+    if len(text.strip()) >= 40:
+        profile = parse_resume(text)
+    elif os.path.splitext(path)[1].lower() == ".pdf":
+        print("  PDF has no extractable text; reading it directly.")
+        profile = parse_resume_pdf(path)
+    else:
+        profile = _empty_profile()
     with open(out_path, "w") as f:
         json.dump(profile, f, indent=2)
     name = profile.get("name") or "(name not extracted)"

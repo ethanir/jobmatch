@@ -277,8 +277,17 @@ document.getElementById("resumeFile").addEventListener("change",function(){
   fetch(API+"/api/onboard",{method:"POST",body:fd})
     .then(r=>r.json()).then(d=>{
       if(d.ok && d.profile){
-        msg.className="msg ok";msg.textContent="Read your resume. Review the details below.";
-        reviewProfile(d.profile, "We filled this in from your resume. Check it over, add anything missing, then save below.");
+        const p=d.profile;
+        const sk=p.skills||{};
+        const skillCount=[].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).length;
+        const got = skillCount>0 || (p.target_titles||[]).length>0 || !!p.name;
+        if(got){
+          msg.className="msg ok";msg.textContent="Read your resume. Review the details below.";
+          reviewProfile(p, "We filled in what we could from your resume. Check it over, add anything missing, then save below.");
+        }else{
+          msg.className="msg err";msg.textContent="We couldn't pull text from that file (it may be a scanned image). Fill in the form below, or try the bring-your-own-AI option.";
+          reviewProfile(p, "We couldn't read much from that file. Fill in the details below, then save.");
+        }
       }
       else{msg.className="msg err";msg.textContent=d.error||"Could not read that file.";}
     }).catch(()=>{msg.className="msg err";msg.textContent="Can't reach the server. Start it with: uvicorn server:app --port 8000";});
@@ -345,7 +354,9 @@ function prefillForm(p){
   const sk=p.skills||{};
   setVal("fSkills", [].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).join(", "));
   const pref=p.preferences||{};
-  setVal("fLocs", (pref.locations||[]).join("; "));
+  let locs=(pref.locations||[]).join("; ");
+  if(!locs && p.location) locs=p.location;   // fall back to the resume's home city
+  setVal("fLocs", locs);
   let ws="either";
   if(pref.remote_ok && !pref.onsite_ok) ws="remote";
   else if(!pref.remote_ok && pref.onsite_ok) ws="onsite";
