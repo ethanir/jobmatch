@@ -71,6 +71,16 @@
   main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
   @media(max-width:880px){main{grid-template-columns:1fr}}
   .filters{display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap}
+  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar .filters{margin-bottom:0;flex:1;min-width:0}
+  .searchbox{position:relative;flex-shrink:0;width:230px;max-width:100%}
+  @media(max-width:520px){.searchbox{width:100%}}
+  .searchbox svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none}
+  .searchbox input{width:100%;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 34px;color:var(--ink);font-family:var(--fu);font-size:13.5px;outline:none;transition:border-color .15s}
+  .searchbox input:focus{border-color:var(--greenln)}
+  .searchbox input::placeholder{color:var(--mut)}
+  .searchclear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:18px;height:18px;border:none;background:#222a34;color:var(--ink2);border-radius:99px;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0}
+  .searchclear.show{display:flex}
   .pill{font-family:var(--fu);font-size:13.5px;font-weight:500;padding:8px 15px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}
   .pill.active{background:var(--green);color:#08120c;border-color:var(--green)}
   .pill b{font-weight:600;opacity:.6;margin-left:5px}
@@ -213,7 +223,14 @@
 <div class="wrap"><main>
   <section>
     <div id="rankBannerWrap"></div>
-    <div class="filters" id="filters"></div>
+    <div class="toolbar">
+      <div class="filters" id="filters"></div>
+      <div class="searchbox">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7e8a96" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
+        <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
+      </div>
+    </div>
     <div class="list" id="list"></div>
   </section>
   <section id="detailWrap"></section>
@@ -259,7 +276,7 @@
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false, RANKED_CACHE = 0, SOURCE = "", RANK_PROMPT = "";
+let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false, RANKED_CACHE = 0, SOURCE = "", RANK_PROMPT = "", SEARCH = "";
 
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
@@ -349,6 +366,8 @@ function onRefreshClick(){
 
 /* ---------- feed ---------- */
 async function loadJobs(){
+  const list = document.getElementById("list");
+  if(!JOBS.length){ list.innerHTML = '<div class="empty">Loading your matches\u2026</div>'; }
   try{
     const r = await fetch(API + "/api/jobs?tier=all");
     const d = await r.json();
@@ -369,7 +388,22 @@ async function loadJobs(){
   }
 }
 
-function counts(){const c={all:JOBS.length,strong:0,possible:0,skip:0};JOBS.forEach(j=>{c[j.tier]=(c[j.tier]||0)+1});return c;}
+/* ---------- search ---------- */
+function searchedJobs(){
+  if(!SEARCH) return JOBS;
+  return JOBS.filter(j=>((j.company||"")+" "+(j.title||"")+" "+(j.location||"")).toLowerCase().includes(SEARCH));
+}
+function setSearch(v){
+  SEARCH = (v||"").toLowerCase().trim();
+  document.getElementById("searchClear").classList.toggle("show", !!SEARCH);
+  render();
+}
+function clearSearch(){
+  const inp=document.getElementById("searchIn"); if(inp) inp.value="";
+  setSearch("");
+}
+
+function counts(){const src=searchedJobs();const c={all:src.length,strong:0,possible:0,skip:0};src.forEach(j=>{c[j.tier]=(c[j.tier]||0)+1});return c;}
 
 /* ---------- bring-your-own-AI ranking ---------- */
 /* The banner only shows on a visitor's heuristic feed that still has unverified
@@ -430,9 +464,14 @@ function render(){
   const tiers = [["strong","Strong"],["possible","Possible"],["skip","Skip"],["all","All"]];
   document.getElementById("filters").innerHTML = tiers.map(([k,label])=>
     `<button class="pill ${FILTER===k?'active':''}" onclick="setFilter('${k}')">${label}<b>${c[k]||0}</b></button>`).join("");
-  let rows = JOBS.filter(j=>FILTER==="all"||j.tier===FILTER);
+  const searched = searchedJobs();
+  let rows = searched.filter(j=>FILTER==="all"||j.tier===FILTER);
   const list = document.getElementById("list");
-  if(!rows.length){list.innerHTML='<div class="empty">No '+FILTER+' roles yet.<br>Hit <b>Refresh jobs</b> to pull the latest.</div>';document.getElementById("detailWrap").innerHTML="";return;}
+  if(!rows.length){
+    list.innerHTML = '<div class="empty">'+emptyMessage(searched)+'</div>';
+    document.getElementById("detailWrap").innerHTML="";
+    return;
+  }
   if(!SELECTED || !rows.find(j=>j.id===SELECTED)) SELECTED = rows[0].id;
   list.innerHTML = rows.map(j=>`
     <div class="row ${j.id===SELECTED?'sel':''}" onclick="select('${j.id}')">
@@ -442,6 +481,25 @@ function render(){
       <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span></div>
     </div>`).join("");
   renderDetail(rows.find(j=>j.id===SELECTED));
+}
+
+/* Context-aware empty state, so a visitor is never told to do something only the
+   owner can (like Refresh). `searched` is the feed after the search filter. */
+function emptyMessage(searched){
+  if(SEARCH && !searched.length){
+    return 'No roles match \u201c'+esc(SEARCH)+'\u201d.<br>Try a different company or title, or <b onclick="clearSearch()" style="cursor:pointer;color:var(--green)">clear the search</b>.';
+  }
+  if(!JOBS.length){
+    if(UNLOCKED) return 'No roles yet.<br>Hit <b>Refresh jobs</b> to pull the latest.';
+    return 'No matches for your profile yet.<br>Try broadening your roles or locations on your <a href="/start" style="color:var(--green)">profile</a>.';
+  }
+  // This tab is empty but the feed (or search) has roles in other tabs.
+  if(FILTER==="strong"){
+    if(UNLOCKED) return 'No strong matches in this view yet.<br>Raise the scan depth and hit <b>Refresh</b> to verify more.';
+    if(JOBS.some(j=>!verified(j))) return 'No verified strong matches yet.<br>Use <b>Rank with my AI</b> to verify your top roles for free.';
+    return 'No strong matches in this view.<br>Check the other tabs.';
+  }
+  return 'No '+FILTER+' roles in this view.<br>Check the other tabs.';
 }
 
 function renderDetail(j){
