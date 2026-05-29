@@ -64,7 +64,7 @@
   .prog-detail{font-family:var(--fm);font-size:11.5px;color:var(--mut)}
   /* scan depth */
   .depth{overflow:hidden;max-height:0;transition:max-height .35s ease}
-  .depth.open{max-height:160px}
+  .depth.open{max-height:240px}
   .depth-in{padding:0 0 16px}
   .depth-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px}
   .depth-label{display:inline-flex;align-items:center;gap:7px;font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2)}
@@ -79,6 +79,14 @@
   .depth-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer;box-shadow:0 0 0 4px rgba(79,227,155,.16)}
   .depth-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer}
   .depth-note{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:9px;line-height:1.5}
+  .depth-legend{display:flex;gap:18px;align-items:center;margin-top:11px;flex-wrap:wrap}
+  .lg{display:inline-flex;align-items:center;gap:7px;font-family:var(--fu);font-size:11.5px;font-weight:600;color:var(--mut)}
+  .lg .sw{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  .lg.cached .sw{background:var(--green)}
+  .lg.new .sw{background:var(--amber)}
+  .lg b{font-family:var(--fd);font-weight:700;font-size:12.5px}
+  .lg.cached b{color:var(--green)}
+  .lg.new b{color:var(--amber)}
   /* layout */
   main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
   @media(max-width:880px){main{grid-template-columns:1fr}}
@@ -238,7 +246,8 @@
       <input class="depth-slider" type="range" id="depthSlider" min="0" max="1000" step="20" value="100" oninput="updateDepth()"/>
       <span class="depth-val" id="depthVal">100</span>
     </div>
-    <div class="depth-note">The free scorer rates every role. This sets how many of the top roles the AI reads in full. Jobs already scanned are cached and free, so you only pay for depth beyond what's been read. Deeper finds a few more, with a steep drop-off.</div>
+    <div class="depth-legend" id="depthLegend"></div>
+    <div class="depth-note"><b>Refresh</b> pulls the newest postings, then the AI reads the top roles in full (this slider sets how many). Green is already read and free; amber is the new depth, the only part that costs. Reading deeper finds a few more strong matches, with a steep drop-off.</div>
   </div></div></div>
   <div class="wrap"><div class="prog" id="prog"><div class="prog-in">
     <div class="prog-row"><span class="prog-stage" id="progStage">Starting…</span><span class="prog-detail" id="progDetail"></span></div>
@@ -349,23 +358,38 @@ function updateDepth(){
   const sl=document.getElementById("depthSlider"); if(!sl) return;
   const n=parseInt(sl.value,10);
   document.getElementById("depthVal").textContent=n;
-  const pct=(n/1000)*100;
-  sl.style.background="linear-gradient(90deg,var(--green) "+pct+"%,#222a34 "+pct+"%)";
+  const cache=RANKED_CACHE||0;
+  const cachedHere=Math.min(cache, n);     // of the chosen depth, how many are already read (free)
+  const fresh=Math.max(0, n - cache);      // new roles this run would read (the paid part)
+  const cachePct=(cachedHere/1000)*100, valPct=(n/1000)*100;
+  // green = already read (cached, free); amber = the new depth you pay for; grey = not read
+  sl.style.background="linear-gradient(90deg,var(--green) 0%,var(--green) "+cachePct+"%,var(--amber) "+cachePct+"%,var(--amber) "+valPct+"%,#222a34 "+valPct+"%)";
   const est=document.getElementById("depthEst");
+  const leg=document.getElementById("depthLegend");
   const m=Math.round(depthMatches(n));
-  if(n===0){ est.innerHTML='<span class="est-free">Free \u00b7 heuristic only</span>'; return; }
-  const fresh=Math.max(0, n - RANKED_CACHE);
+  if(n===0){
+    est.innerHTML='<span class="est-free">Free \u00b7 heuristic only</span>';
+    if(leg) leg.innerHTML='<span class="lg cached" style="opacity:.8"><span class="sw"></span>No AI reading \u00b7 every job is keyword-ranked, free</span>';
+    return;
+  }
   // Calibrated against a real run: ~$0.0045 and ~0.69s per freshly ranked job,
   // plus fixed sourcing/scoring overhead. We round cost slightly up so the
   // estimate never under-promises the bill.
   if(fresh===0){
     est.innerHTML='<span class="est-free">Cached \u00b7 free</span>'+stat("~"+m,"strong","est-hit");
-    return;
+  }else{
+    const cost="$"+(fresh*0.005).toFixed(2);
+    const sec=Math.round(20 + fresh*0.6);
+    const t=sec<90?("~"+sec+"s"):("~"+Math.round(sec/60)+" min");
+    est.innerHTML=stat("~"+cost,"cost")+stat(t,"time")+stat("~"+m,"strong","est-hit");
   }
-  const cost="$"+(fresh*0.005).toFixed(2);
-  const sec=Math.round(20 + fresh*0.6);
-  const t=sec<90?("~"+sec+"s"):("~"+Math.round(sec/60)+" min");
-  est.innerHTML=stat("~"+cost,"cost")+stat(t,"time")+stat("~"+m,"strong","est-hit");
+  if(leg){
+    leg.innerHTML=
+      '<span class="lg cached"><span class="sw"></span><b>'+cachedHere+'</b> already read \u00b7 cached, free</span>'+
+      (fresh>0
+        ? '<span class="lg new"><span class="sw"></span><b>'+fresh+'</b> new this run \u00b7 the part you pay for</span>'
+        : '<span class="lg cached" style="opacity:.7">Nothing new at this depth \u00b7 this run is free</span>');
+  }
 }
 function stat(val,label,cls){ return '<span class="est-stat '+(cls||"")+'"><b>'+val+'</b>'+label+'</span>'; }
 async function fetchCacheStats(){

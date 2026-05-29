@@ -659,8 +659,11 @@ def index():
 
 @app.get("/app")
 def app_ui(request: Request):
-    """Serve the hosted single-page app (the ranked feed). OPEN to everyone:
-    viewing is free, only the Refresh action inside it is gated."""
+    """Serve the ranked-feed app. Requires a signed-in account; we redirect
+    server-side (before the page renders) so a signed-out visitor never sees a
+    flash of the app before being sent to sign in."""
+    if db.has_db() and not _signed_in(request):
+        return RedirectResponse("/signin", status_code=303)
     for path in ("app.html", "viewer.html"):
         if os.path.exists(path):
             return FileResponse(path)
@@ -669,8 +672,11 @@ def app_ui(request: Request):
 
 @app.get("/start")
 def start_ui(request: Request):
-    """Serve the onboarding page (build your profile). OPEN to view; the actions
-    inside it (onboard / save-profile) are gated server-side."""
+    """Serve the profile page. Requires a signed-in account; redirect server-side
+    (before render) so a signed-out visitor is sent straight to sign in with no
+    flash of the profile page."""
+    if db.has_db() and not _signed_in(request):
+        return RedirectResponse("/signin", status_code=303)
     if os.path.exists("start.html"):
         return FileResponse("start.html")
     raise HTTPException(status_code=404, detail="no start.html found")
@@ -741,8 +747,10 @@ def _cookie_kw():
 
 
 @app.get("/signin")
-def signin_page():
-    """The sign in / create account page."""
+def signin_page(request: Request):
+    """The sign in / create account page. If already signed in, go to the app."""
+    if db.has_db() and _signed_in(request):
+        return RedirectResponse("/app", status_code=303)
     if os.path.exists("signin.html"):
         return FileResponse("signin.html")
     raise HTTPException(status_code=404, detail="no signin.html found")
