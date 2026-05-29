@@ -379,6 +379,7 @@ def _scored_base(profile):
             "source": j.get("source", "") or j.get("ats", "") or "",
             "description": (j.get("description", "") or "")[:700],
             "is_new": j.get("is_new", False),
+            "date_posted": j.get("date_posted"),
             "_score": j.get("_score", 0),
             "_matched": j.get("_matched", []),
             "_why": j.get("_why", []),
@@ -396,6 +397,8 @@ def _scored_base(profile):
 def _shape(job):
     """Normalize any internal job dict into the exact shape the UI consumes."""
     fit = job.get("fit") or {}
+    pts = job.get("date_posted")
+    posted_ts = int(pts) if isinstance(pts, (int, float)) and pts else None
     return {
         "id": job.get("id") or db.job_hash(job),
         "company": job.get("company", ""),
@@ -420,6 +423,7 @@ def _shape(job):
         "linkedin_search": job.get("linkedin_search", ""),
         "is_new": job.get("is_new", False),
         "status": job.get("status", "") or "",
+        "posted_ts": posted_ts,
     }
 
 
@@ -531,6 +535,7 @@ def _visitor_feed(user_id, profile, tier):
             "source": j["source"],
             "fit": fit,
             "is_new": j["is_new"],
+            "date_posted": j.get("date_posted"),
             "status": statusmap.get(jid, ""),
         }))
     order = {"strong": 0, "possible": 1, "skip": 2}

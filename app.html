@@ -19,7 +19,7 @@
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fu);-webkit-font-smoothing:antialiased}
   a{color:inherit}
-  .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+  .wrap{max-width:1340px;margin:0 auto;padding:0 28px}
   header{position:sticky;top:0;z-index:20;background:rgba(13,16,21,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
   .head-in{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 0}
   .brand{font-family:var(--fd);font-size:30px;font-weight:600;letter-spacing:-.02em}
@@ -591,6 +591,22 @@ function emptyMessage(searched){
 
 function statusLabel(s){return s==='applied'?'Applied':s==='interviewing'?'Interviewing':s==='rejected'?'Rejected':'Not applied';}
 
+/* Human posting age from an epoch-seconds timestamp. Returns "" when the source
+   didn't give a date (many boards don't), so the UI can simply omit it. */
+function postedAgo(ts){
+  if(!ts) return "";
+  const d = Math.floor((Date.now()/1000 - ts)/86400);
+  if(d < 0) return "";
+  if(d === 0) return "today";
+  if(d === 1) return "yesterday";
+  if(d < 7) return d+" days ago";
+  if(d < 14) return "1 week ago";
+  if(d < 30) return Math.floor(d/7)+" weeks ago";
+  if(d < 60) return "1 month ago";
+  if(d < 365) return Math.floor(d/30)+" months ago";
+  return "over a year ago";
+}
+
 function statusControl(j){
   const s=j.status||"";
   const opt=(val,lbl)=>`<button class="${s===val?'on':''}" onclick="setStatus('${j.id}','${val}',event)"><span class="stdot d-${val}"></span>${lbl}</button>`;
@@ -627,13 +643,14 @@ function renderDetail(j){
   const R=70,C=2*Math.PI*R,off=C*(1-(j.score||0)/100);
   const d=j.draft, hasD = d && (typeof d==="object"?(d.body||d.subject):d);
   const subjT=(typeof d==="object"?(d.subject||""):""), bodyT=(typeof d==="object"?(d.body||""):(d||""));
+  const pa=postedAgo(j.posted_ts);
   document.getElementById("detailWrap").innerHTML = `
   <div class="detail">
     <div class="d-head">
       <div>
         <div class="d-co">${esc(j.company)}</div>
         <h1 class="d-ti">${esc(j.title)}</h1>
-        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span></div>
+        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span>${pa?`<span>·</span><span class="d-posted">Posted ${pa}</span>`:""}</div>
       </div>
       <div class="d-right">
         ${statusControl(j)}
