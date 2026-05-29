@@ -211,6 +211,8 @@
   .rankn-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer;box-shadow:0 0 0 4px rgba(79,227,155,.16)}
   .rankn-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--green);border:none;cursor:pointer}
   .rankn-warn{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:9px;line-height:1.5}
+  .ranksend{font-family:var(--fu);font-size:13px;color:var(--ink2)}
+  .ranksend b{color:var(--green);font-weight:800}
   .rankcopy{display:inline-flex;align-items:center;gap:6px;font-family:var(--fu);font-size:12.5px;font-weight:700;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:7px 13px;cursor:pointer;transition:background .15s,color .15s}
   .rankcopy:hover{background:var(--greenln)}
   .rankcopy.done{color:#08120c;background:var(--green);border-color:var(--green)}
@@ -231,40 +233,12 @@
     </div>
     <div class="right">
       <span class="meta" id="meta"></span>
-      <button class="lockbtn" id="lockBtn" onclick="openUnlock()">
-        <svg class="ic-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-        <svg class="ic-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        <span id="lockLabel">Unlock</span>
-      </button>
-      <button class="refresh locked" id="refreshBtn" onclick="onRefreshClick()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-        <span id="refreshLabel">Refresh jobs</span>
-      </button>
       <div class="acct">
         <span class="acct-email" id="acctEmail"></span>
         <button class="signout" onclick="signOut()">Sign out</button>
       </div>
     </div>
   </div>
-  <div class="wrap"><div class="depth" id="depthPanel"><div class="depth-in">
-    <div class="depth-top">
-      <span class="depth-label">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        AI scan depth
-      </span>
-      <span class="depth-est" id="depthEst"></span>
-    </div>
-    <div class="depth-row">
-      <input class="depth-slider" type="range" id="depthSlider" min="0" max="1000" step="20" value="100" oninput="updateDepth()"/>
-      <span class="depth-val" id="depthVal">100</span>
-    </div>
-    <div class="depth-legend" id="depthLegend"></div>
-    <div class="depth-note">Pulls the newest openings, then has the AI read this many of the top in full. Green is cached and free; amber is the new depth you pay for.</div>
-  </div></div></div>
-  <div class="wrap"><div class="prog" id="prog"><div class="prog-in">
-    <div class="prog-row"><span class="prog-stage" id="progStage">Starting…</span><span class="prog-detail" id="progDetail"></span></div>
-    <div class="bar"><i id="progFill"></i></div>
-  </div></div></div>
 </header>
 
 <div class="wrap"><main>
@@ -283,32 +257,15 @@
   <section id="detailWrap"></section>
 </main></div>
 
-<!-- unlock modal -->
-<div class="modal-bg" id="unlockBg" onclick="if(event.target===this)closeUnlock()">
-  <div class="modal" style="position:relative">
-    <button class="modal-x" onclick="closeUnlock()" aria-label="close">×</button>
-    <div class="modal-lock">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-    </div>
-    <h2>Unlock refreshing</h2>
-    <p>Anyone can browse the feed. Refreshing runs the AI, so it is owner-only. Enter the access code to enable it.</p>
-    <input id="unlockCode" type="password" placeholder="Access code" autocomplete="off"
-           onkeydown="if(event.key==='Enter')doUnlock()"/>
-    <button class="modal-btn" id="unlockSubmit" onclick="doUnlock()">Unlock →</button>
-    <div class="modal-msg" id="unlockMsg"></div>
-  </div>
-</div>
-
 <!-- bring-your-own-AI ranking modal -->
 <div class="modal-bg" id="rankBg" onclick="if(event.target===this)closeRank()">
   <div class="modal wide" style="position:relative">
     <button class="modal-x" onclick="closeRank()" aria-label="close">×</button>
-    <h2>Rank these with your own AI</h2>
-    <p>Your feed is keyword estimates right now. Have your own ChatGPT or Claude score your top unverified roles in full, for free. Save them, then run this again any time to verify the next batch.</p>
+    <h2>Rank my matches</h2>
+    <p>Your scores are quick keyword estimates right now. Have your own ChatGPT or Claude read your top matches in full, for free, and your feed updates with real scores.</p>
     <div class="rankn">
-      <div class="rankn-top"><span class="rankn-label">Jobs to send</span><span class="rankn-val" id="rankNVal">25</span></div>
-      <input class="rankn-slider" type="range" id="rankNSlider" min="5" max="50" step="5" value="25" oninput="setRankN(this.value)"/>
-      <div class="rankn-warn" id="rankNWarn">This sends your top unverified roles. Some AIs cut off a long reply, so if the result you paste looks incomplete, lower this and try again.</div>
+      <div class="ranksend" id="rankSend">Sending your top matches&hellip;</div>
+      <div class="rankn-warn">If your AI's reply gets cut off, just paste whatever it gave back and save. Anything it missed stays one click away.</div>
     </div>
     <div class="ranksteps" id="rankSteps">
       <div class="rankstep"><div class="rn">1</div><div class="rt"><b>Copy this prompt</b> and paste it into ChatGPT or Claude (free web version is fine), then send.</div></div>
@@ -334,7 +291,7 @@
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, POLL = null, UNLOCKED = false, RANKED_CACHE = 0, SOURCE = "", RANK_PROMPT = "", SEARCH = "";
+let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "";
 
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
@@ -347,105 +304,6 @@ function badgeClass(j){ if(!verified(j)) return "sb-est"; if(j.tier==="strong") 
 function badgeText(j){ return (verified(j)?"":"~") + (j.score||0); }
 function dotClass(j){ if(j.tier==="strong"&&verified(j)) return ""; if(j.tier==="possible"&&verified(j)) return "amber"; return "grey"; }
 function ringColor(j){ if(!verified(j)) return "#7e8a96"; if(j.tier==="strong") return "#4fe39b"; if(j.tier==="possible") return "#e3c14f"; return "#7e8a96"; }
-
-/* ---------- unlock ---------- */
-async function checkUnlock(){
-  try{
-    const s = await fetch(API+"/api/unlock/status",{credentials:"same-origin"}).then(r=>r.json());
-    UNLOCKED = !!s.unlocked;
-  }catch(e){ UNLOCKED = false; }
-  renderLock();
-}
-function renderLock(){
-  const lb=document.getElementById("lockBtn");
-  const ll=document.getElementById("lockLabel");
-  const rb=document.getElementById("refreshBtn");
-  const dp=document.getElementById("depthPanel");
-  // The scan-depth slider only matters when you can actually run a refresh, so
-  // it stays collapsed until unlocked. New jobs arrive on the auto-scan anyway.
-  if(UNLOCKED){
-    if(dp) dp.classList.add("open");
-    lb.classList.add("unlocked"); ll.textContent="Unlocked";
-    rb.classList.remove("locked");
-  }else{
-    if(dp) dp.classList.remove("open");
-    lb.classList.remove("unlocked"); ll.textContent="Unlock";
-    rb.classList.add("locked");
-  }
-}
-function depthMatches(n){ return 3.6*(1-Math.exp(-n/118)); }
-function updateDepth(){
-  const sl=document.getElementById("depthSlider"); if(!sl) return;
-  const n=parseInt(sl.value,10);
-  document.getElementById("depthVal").textContent=n;
-  const cache=RANKED_CACHE||0;
-  const cachedHere=Math.min(cache, n);     // of the chosen depth, how many are already read (free)
-  const fresh=Math.max(0, n - cache);      // new roles this run would read (the paid part)
-  const cachePct=(cachedHere/1000)*100, valPct=(n/1000)*100;
-  // green = already read (cached, free); amber = the new depth you pay for; grey = not read
-  sl.style.background="linear-gradient(90deg,var(--green) 0%,var(--green) "+cachePct+"%,var(--amber) "+cachePct+"%,var(--amber) "+valPct+"%,#222a34 "+valPct+"%)";
-  const est=document.getElementById("depthEst");
-  const leg=document.getElementById("depthLegend");
-  const m=Math.round(depthMatches(n));
-  if(n===0){
-    est.innerHTML='<span class="est-free">Free \u00b7 heuristic only</span>';
-    if(leg) leg.innerHTML='<span class="lg cached" style="opacity:.8"><span class="sw"></span>No AI reading \u00b7 every job is keyword-ranked, free</span>';
-    return;
-  }
-  // Calibrated against a real run: ~$0.0045 and ~0.69s per freshly ranked job,
-  // plus fixed sourcing/scoring overhead. We round cost slightly up so the
-  // estimate never under-promises the bill.
-  if(fresh===0){
-    est.innerHTML='<span class="est-free">Cached \u00b7 free</span>'+stat("~"+m,"strong","est-hit");
-  }else{
-    const cost="$"+(fresh*0.005).toFixed(2);
-    const sec=Math.round(20 + fresh*0.6);
-    const t=sec<90?("~"+sec+"s"):("~"+Math.round(sec/60)+" min");
-    est.innerHTML=stat("~"+cost,"cost")+stat(t,"time")+stat("~"+m,"strong","est-hit");
-  }
-  if(leg){
-    leg.innerHTML=
-      '<span class="lg cached"><span class="sw"></span><b>'+cachedHere+'</b> already read \u00b7 cached, free</span>'+
-      (fresh>0
-        ? '<span class="lg new"><span class="sw"></span><b>'+fresh+'</b> new this run \u00b7 the part you pay for</span>'
-        : '<span class="lg cached" style="opacity:.7">Nothing new at this depth \u00b7 this run is free</span>');
-  }
-}
-function stat(val,label,cls){ return '<span class="est-stat '+(cls||"")+'"><b>'+val+'</b>'+label+'</span>'; }
-async function fetchCacheStats(){
-  try{
-    const s=await fetch(API+"/api/cache/stats").then(r=>r.json());
-    RANKED_CACHE = (s&&typeof s.ranked==="number") ? s.ranked : 0;
-  }catch(e){ RANKED_CACHE = 0; }
-  updateDepth();
-}
-function openUnlock(){
-  if(UNLOCKED) return;
-  document.getElementById("unlockMsg").textContent="";
-  document.getElementById("unlockCode").value="";
-  document.getElementById("unlockBg").classList.add("show");
-  setTimeout(()=>document.getElementById("unlockCode").focus(),60);
-}
-function closeUnlock(){ document.getElementById("unlockBg").classList.remove("show"); }
-async function doUnlock(){
-  const code=document.getElementById("unlockCode").value.trim();
-  const msg=document.getElementById("unlockMsg");
-  if(!code){ msg.style.color="#e3804f"; msg.textContent="Enter the code."; return; }
-  msg.style.color="var(--mut)"; msg.textContent="Checking…";
-  try{
-    const r=await fetch(API+"/api/unlock",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({code})});
-    const d=await r.json().catch(()=>({}));
-    if(d.ok){
-      UNLOCKED=true; renderLock(); closeUnlock(); toast("Unlocked. Refresh is live ✓");
-    }else{
-      msg.style.color="#e3804f"; msg.textContent=d.error||"Incorrect code.";
-    }
-  }catch(e){ msg.style.color="#e3804f"; msg.textContent="Can't reach the server."; }
-}
-function onRefreshClick(){
-  if(!UNLOCKED){ openUnlock(); return; }
-  startRefresh();
-}
 
 /* ---------- feed ---------- */
 async function loadJobs(){
@@ -515,7 +373,7 @@ function renderRankBanner(){
       '<div class="fbar-item verify" title="'+vTip+'">'+
         '<span class="fbar-ic">'+check+'</span>'+
         '<span class="fbar-tx"><b>'+un+'</b> on estimates</span>'+
-        '<button class="fbar-btn" onclick="openRank()">Rank with my AI</button>'+
+        '<button class="fbar-btn" onclick="openRank()">Rank my matches</button>'+
       '</div>';
   } else {
     verify =
@@ -571,7 +429,7 @@ function tickScan(){
   }
 }
 
-let RANK_N = 25;
+const RANK_CAP = 150;
 function openRank(){
   document.getElementById("rankBg").classList.add("show");
   document.getElementById("rankMsg").textContent = "";
@@ -581,28 +439,20 @@ function openRank(){
 }
 function rankUnverified(){ return JOBS.filter(j=>!verified(j)).length; }
 function updateRankInfo(){
-  const w=document.getElementById("rankNWarn"); if(!w) return;
+  const el=document.getElementById("rankSend"); if(!el) return;
   const un=rankUnverified();
-  const tail=" Some AIs cut off a long reply, so if the result you paste looks incomplete, lower this and try again.";
-  if(un<=RANK_N){
-    w.textContent = "This sends all "+un+" of your roles still on estimates."+tail;
-  }else{
-    w.textContent = "You have "+un+" roles on estimates. This sends your top "+RANK_N+"; save them, then run this again for the next batch."+tail;
-  }
+  const n=Math.min(un, RANK_CAP);
+  el.innerHTML = un<=RANK_CAP
+    ? ("Sending all <b>"+un+"</b> of your roles still on estimates.")
+    : ("Sending your top <b>"+n+"</b> of "+un+" on estimates. Save, then click again for the rest.");
 }
 function loadRankPrompt(){
   const pre = document.getElementById("rankPrompt");
   pre.value = "Loading your top matches...";
-  fetch(API+"/api/rank/byo?n="+RANK_N,{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+  fetch(API+"/api/rank/byo?n="+RANK_CAP,{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
     if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.value = d.prompt; }
     else{ RANK_PROMPT=""; pre.value = ""; document.getElementById("rankMsg").className="modal-msg"; document.getElementById("rankMsg").textContent = d.error || "Couldn't build the prompt."; }
   }).catch(()=>{ RANK_PROMPT=""; pre.value=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
-}
-function setRankN(v){
-  RANK_N = parseInt(v,10) || 25;
-  document.getElementById("rankNVal").textContent = RANK_N;
-  updateRankInfo();
-  loadRankPrompt();
 }
 function closeRank(){ document.getElementById("rankBg").classList.remove("show"); }
 function copyRankPrompt(){
@@ -629,7 +479,7 @@ function saveRank(){
         const remaining = Math.max(0, rankUnverified() - d.saved);
         setTimeout(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; closeRank(); loadJobs();
           toast(remaining>0
-            ? ("Saved. "+remaining+" more on estimates, open Rank with my AI for the next batch.")
+            ? ("Saved. "+remaining+" more on estimates, click Rank my matches for the rest.")
             : "Saved. Your feed is verified."); }, 700);
       }else{
         RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
@@ -669,13 +519,11 @@ function emptyMessage(searched){
     return 'No roles match \u201c'+esc(SEARCH)+'\u201d.<br>Try a different company or title, or <b onclick="clearSearch()" style="cursor:pointer;color:var(--green)">clear the search</b>.';
   }
   if(!JOBS.length){
-    if(UNLOCKED) return 'No roles yet.<br>Hit <b>Refresh jobs</b> to pull the latest.';
     return 'No matches for your profile yet.<br>Try broadening your roles or locations on your <a href="/start" style="color:var(--green)">profile</a>.';
   }
   // This tab is empty but the feed (or search) has roles in other tabs.
   if(FILTER==="strong"){
-    if(UNLOCKED) return 'No strong matches in this view yet.<br>Raise the scan depth and hit <b>Refresh</b> to verify more.';
-    if(JOBS.some(j=>!verified(j))) return 'No verified strong matches yet.<br>Use <b>Rank with my AI</b> to verify your top roles for free.';
+    if(JOBS.some(j=>!verified(j))) return 'No verified strong matches yet.<br>Use <b>Rank my matches</b> to read your top roles in full for free.';
     return 'No strong matches in this view.<br>Check the other tabs.';
   }
   return 'No '+FILTER+' roles in this view.<br>Check the other tabs.';
@@ -742,44 +590,6 @@ function select(id){SELECTED=id;render();}
 function setFilter(f){FILTER=f;SELECTED=null;render();}
 function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
-/* ---------- live refresh (only reachable when unlocked) ---------- */
-async function startRefresh(){
-  const btn=document.getElementById("refreshBtn");
-  const sl=document.getElementById("depthSlider");
-  const topN = sl ? parseInt(sl.value,10) : null;
-  let res;
-  try{
-    res = await fetch(API+"/api/refresh",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({top_n:topN})});
-  }catch(e){ toast("Can't reach the server"); return; }
-  if(res.status===401){ UNLOCKED=false; renderLock(); openUnlock(); return; }
-  const r = await res.json().catch(()=>null);
-  if(!r){ toast("Can't reach the server"); return; }
-  if(!r.started){ toast(r.reason||"Already running"); }
-  btn.classList.add("spin");btn.disabled=true;
-  document.getElementById("refreshLabel").textContent="Searching…";
-  document.getElementById("prog").classList.add("open");
-  POLL = setInterval(pollStatus, 700);
-  pollStatus();
-}
-async function pollStatus(){
-  const s = await fetch(API+"/api/refresh/status").then(r=>r.json()).catch(()=>null);
-  if(!s) return;
-  document.getElementById("progStage").textContent = s.stage||"Working…";
-  document.getElementById("progDetail").textContent = s.detail||"";
-  document.getElementById("progFill").style.width = (s.pct||0)+"%";
-  if(!s.running){
-    clearInterval(POLL);POLL=null;
-    const btn=document.getElementById("refreshBtn");
-    btn.classList.remove("spin");btn.disabled=false;
-    document.getElementById("refreshLabel").textContent="Refresh jobs";
-    if(s.error){toast("Refresh failed");document.getElementById("progStage").textContent="Error: "+s.error;return;}
-    if(s.result){toast(`+${s.result.new} new · ${s.result.strong} strong`);}
-    setTimeout(()=>document.getElementById("prog").classList.remove("open"),1400);
-    await loadJobs();
-    fetchCacheStats();
-  }
-}
-
 async function loadMe(){
   try{
     const m = await fetch(API+"/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
@@ -792,9 +602,6 @@ async function signOut(){
   location.replace("/signin");
 }
 
-updateDepth();
-fetchCacheStats();
-checkUnlock();
 fetchSchedule();
 loadMe();
 loadJobs();

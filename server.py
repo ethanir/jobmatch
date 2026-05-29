@@ -1040,8 +1040,8 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
 # overlays a user's stored rankings (Phase 3); these two endpoints produce and
 # store them. The prompt format mirrors export_rank.py / import_rank.py so the
 # web flow and the CLI stay consistent.
-RANK_EXPORT_MAX = 50          # most jobs we ask a web chat to score at once
-RANK_IMPORT_MAX = 200         # hard cap on rankings accepted per import call
+RANK_EXPORT_MAX = 150         # most jobs we ask a web chat to score at once
+RANK_IMPORT_MAX = 300         # hard cap on rankings accepted per import call
 _VALID_TIERS = ("strong", "possible", "skip")
 
 
@@ -1070,7 +1070,7 @@ def _rank_candidates(user_id, profile, limit):
             "company": j["company"],
             "title": j["title"],
             "location": j["location"],
-            "description": (j.get("description", "") or "")[:1200],
+            "description": (j.get("description", "") or "")[:600],
         })
         if len(out) >= limit:
             break
@@ -1100,9 +1100,11 @@ def _build_rank_prompt(profile, jobs):
         "Return ONLY a JSON array, one object per job, in this exact shape, and "
         "nothing else:",
         '[{"id": "<the id shown>", "score": 0-100, "tier": "strong|possible|skip", '
-        '"reasons": ["short", "short"], "matched_skills": ["..."], "missing_skills": ["..."]}]',
+        '"reasons": ["one short reason"], "matched_skills": ["up to 3"], "missing_skills": ["up to 3"]}]',
         "",
-        "Keep the id exactly as shown for each job. Do not use em dashes in your output.",
+        "Keep it compact so you can finish every job: ONE short reason and at most "
+        "3 skills each. Score every job in the list, in order. Keep the id exactly "
+        "as shown. Do not use em dashes in your output.",
         "",
         "CANDIDATE PROFILE:",
         json.dumps(slim, indent=2),
