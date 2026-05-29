@@ -1,5 +1,5 @@
 """
-Job sources — multi-ATS backbone + self-growing company registry.
+Job sources - multi-ATS backbone + self-growing company registry.
 
 Each connector returns NORMALIZED job dicts:
     {
@@ -76,9 +76,14 @@ def from_smartrecruiters(token, company=None):
     out = []
     for j in r.json().get("content", []):
         loc = j.get("location", {}) or {}
+        pid = j.get("id", "") or ""
+        # The posting 'ref' is the API self-link (returns JSON, not a page). Build the
+        # public careers URL so "Open the posting" lands on the real listing.
+        human = f"https://jobs.smartrecruiters.com/{token}/{pid}" if pid \
+            else (j.get("applyUrl", "") or j.get("ref", ""))
         out.append(_norm("smartrecruiters", company or token, j.get("name", ""),
                          f"{loc.get('city','')}, {loc.get('country','')}".strip(", "),
-                         j.get("ref", "") or j.get("applyUrl", ""), "",
+                         human, "",
                          None, "smartrecruiters", token))
     return out
 

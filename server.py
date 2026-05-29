@@ -885,12 +885,20 @@ async def auth_register(request: Request):
         return JSONResponse({"ok": False, "error": "Enter a valid email address."}, status_code=400)
     if len(password) < 8:
         return JSONResponse({"ok": False, "error": "Use a password of at least 8 characters."}, status_code=400)
-    uid = request.state.browser_id      # upgrade THIS browser's anonymous identity
+    uid = request.state.browser_id      # adopt THIS browser's anonymous identity
     try:
         with db.get_conn() as conn:
             if not conn:
                 return JSONResponse({"ok": False, "error": "Accounts are unavailable right now."}, status_code=503)
             db.ensure_user(conn, uid)
+            # ...but only if it is not already an account. If this browser already
+            # holds an account, a second sign-up must NOT reuse its id, or it would
+            # overwrite the first account and inherit its profile. Give the new
+            # account a fresh identity instead.
+            existing = db.get_user(conn, uid)
+            if existing and existing.get("email"):
+                uid = uuid.uuid4().hex
+                db.ensure_user(conn, uid)
             ok = db.set_account(conn, uid, email, db.hash_password(password))
     except Exception:
         return JSONResponse({"ok": False, "error": "Could not create the account. Try again."}, status_code=500)
@@ -933,7 +941,7 @@ async def auth_login(request: Request):
 def auth_logout():
     """Clear the session cookie."""
     resp = JSONResponse({"ok": True})
-    resp.delete_cookie(SESSION_COOKIE)
+    resp.delete_cookie(SESSION_COOKIE, path="/")
     return resp
 
 
@@ -951,7 +959,10 @@ def read_profile(request: Request):
                     prof = db.get_profile(conn, user_id)
         except Exception:
             prof = None
-    if prof is None and (_is_unlocked(request) or not db.has_db()):
+    # Prefill ONLY from the user's own saved profile. A signed-in account with no
+    # profile of its own gets a blank form (it must never see the owner's profile).
+    # The my_profile.json fallback is for pure local dev (no database) only.
+    if prof is None and not db.has_db():
         for path in (os.environ.get("PROFILE_PATH", "my_profile.json"),
                      "profile.example.json"):
             if os.path.exists(path):
