@@ -251,6 +251,84 @@ def _persist_pool():
         pass
 
 
+# Scoring the whole pool against a profile is the expensive step (seconds for a
+# large pool), and the feed only ever shows the best matches, so we score once
+# per (pool version, profile) and cache the top slice. The verified-rankings
+# overlay is applied fresh on every request on top of this base, so a user's own
+# AI rankings always show immediately. BYO-AI export only ever offers the top
+# RANK_EXPORT_MAX jobs, so a job a user can verify is always inside this slice;
+# capping it can never hide a verified match.
+BASE_KEEP = 400                       # most jobs the feed keeps after ranking
+_BASE_CACHE = {}                      # profile-hash -> {"token","jobs"}
+_BASE_LOCK = threading.Lock()
+_BASE_MAX_PROFILES = 32               # bound memory: keep recent profiles only
+
+
+def _pool_token():
+    """A cheap value that changes whenever the pool changes, used to invalidate
+    the scored-base cache (DB updated_at, else the file mtime)."""
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    meta = db.pool_meta(conn)
+                    if meta is not None:
+                        return ("db", str(meta[1]))
+        except Exception:
+            pass
+    try:
+        if os.path.exists(RANKED_FILE):
+            return ("file", os.path.getmtime(RANKED_FILE))
+    except Exception:
+        pass
+    return ("none", 0)
+
+
+def _profile_hash(profile):
+    try:
+        return _hashlib.sha1(json.dumps(profile, sort_keys=True, default=str).encode()).hexdigest()
+    except Exception:
+        return repr(profile)[:200]
+
+
+def _scored_base(profile):
+    """Return the top BASE_KEEP jobs ranked for this profile, cached by
+    (pool token, profile hash). Each entry is a plain dict carrying the fields
+    the feed and the rank export need, plus the heuristic _score. Recomputed
+    only when the pool or the profile changes."""
+    import score
+    token = _pool_token()
+    key = _profile_hash(profile)
+    with _BASE_LOCK:
+        hit = _BASE_CACHE.get(key)
+        if hit and hit["token"] == token:
+            return hit["jobs"]
+    pool = _raw_pool()          # shallow copies, safe for the scorer to mutate
+    if not pool:
+        return []
+    score.rank_free(pool, profile)      # sets _score/_matched, sorts best-first
+    base = []
+    for j in pool[:BASE_KEEP]:
+        base.append({
+            "id": db.job_hash(j),
+            "company": j.get("company", "") or "",
+            "title": j.get("title", "") or "",
+            "location": j.get("location", "") or "",
+            "url": j.get("url", "") or "",
+            "source": j.get("source", "") or j.get("ats", "") or "",
+            "description": (j.get("description", "") or "")[:1200],
+            "is_new": j.get("is_new", False),
+            "_score": j.get("_score", 0),
+            "_matched": j.get("_matched", []),
+        })
+    with _BASE_LOCK:
+        if len(_BASE_CACHE) >= _BASE_MAX_PROFILES and key not in _BASE_CACHE:
+            # evict an arbitrary existing entry to stay bounded
+            _BASE_CACHE.pop(next(iter(_BASE_CACHE)), None)
+        _BASE_CACHE[key] = {"token": token, "jobs": base}
+    return base
+
+
 # ---------------------------------------------------------------- shaping
 def _shape(job):
     """Normalize any internal job dict into the exact shape the UI consumes."""
@@ -346,15 +424,14 @@ def _user_profile(user_id):
 
 
 def _visitor_feed(user_id, profile, tier):
-    """A feed ranked for THIS visitor: score the shared job pool against their
-    profile with the free heuristic ($0), then overlay any of their own verified
-    rankings (e.g. bring-your-own-AI). The heuristic never awards 'strong' (only
-    a real AI ranking can), so unverified jobs show as estimates in the UI."""
+    """A feed ranked for THIS visitor: the cached heuristic base for their
+    profile ($0), with any of their own verified rankings (e.g. bring-your-own-AI)
+    overlaid fresh on top. The heuristic never awards 'strong' (only a real AI
+    ranking can), so unverified jobs show as estimates in the UI."""
     import score
-    pool = _raw_pool()
-    if not pool:
+    base = _scored_base(profile)
+    if not base:
         return _from_file(), "file"
-    ranked = score.rank_free(pool, profile)   # sets _score/_matched, sorts best-first
     overlay = {}
     if db.has_db():
         try:
@@ -364,8 +441,8 @@ def _visitor_feed(user_id, profile, tier):
         except Exception:
             overlay = {}
     out = []
-    for j in ranked:
-        jid = db.job_hash(j)
+    for j in base:
+        jid = j["id"]
         if jid in overlay:
             f = overlay[jid]
             fit = {"tier": f.get("tier"), "score": f.get("score"),
@@ -376,11 +453,11 @@ def _visitor_feed(user_id, profile, tier):
             fit = score.heuristic_fit(j)
         out.append(_shape({
             "id": jid,
-            "company": j.get("company", ""), "title": j.get("title", ""),
-            "location": j.get("location", ""), "url": j.get("url", ""),
-            "source": j.get("source", "") or j.get("ats", ""),
+            "company": j["company"], "title": j["title"],
+            "location": j["location"], "url": j["url"],
+            "source": j["source"],
             "fit": fit,
-            "is_new": j.get("is_new", False),
+            "is_new": j["is_new"],
         }))
     order = {"strong": 0, "possible": 1, "skip": 2}
     out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))
@@ -745,12 +822,11 @@ _VALID_TIERS = ("strong", "possible", "skip")
 def _rank_candidates(user_id, profile, limit):
     """The visitor's top-N jobs to hand their AI: highest free score first,
     skipping ones they have already had verified, each keyed by the SAME id the
-    feed uses (db.job_hash) so the AI's reply maps straight back."""
-    import score
-    pool = _raw_pool()
-    if not pool:
+    feed uses (db.job_hash) so the AI's reply maps straight back. Uses the cached
+    scored base, so it does not re-score the whole pool."""
+    base = _scored_base(profile)
+    if not base:
         return []
-    ranked = score.rank_free(pool, profile)
     already = {}
     if db.has_db():
         try:
@@ -760,15 +836,14 @@ def _rank_candidates(user_id, profile, limit):
         except Exception:
             already = {}
     out = []
-    for j in ranked:
-        jid = db.job_hash(j)
-        if jid in already:
+    for j in base:
+        if j["id"] in already:
             continue
         out.append({
-            "id": jid,
-            "company": j.get("company", "") or "",
-            "title": j.get("title", "") or "",
-            "location": j.get("location", "") or "",
+            "id": j["id"],
+            "company": j["company"],
+            "title": j["title"],
+            "location": j["location"],
             "description": (j.get("description", "") or "")[:1200],
         })
         if len(out) >= limit:

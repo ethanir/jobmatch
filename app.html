@@ -70,18 +70,18 @@
   /* layout */
   main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
   @media(max-width:880px){main{grid-template-columns:1fr}}
-  .filters{display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap}
-  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-  .toolbar .filters{margin-bottom:0;flex:1;min-width:0}
-  .searchbox{position:relative;flex-shrink:0;width:230px;max-width:100%}
-  @media(max-width:520px){.searchbox{width:100%}}
+  .filters{display:flex;gap:9px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .filters::-webkit-scrollbar{display:none}
+  .toolbar{display:flex;flex-direction:column;gap:11px;margin-bottom:16px}
+  .toolbar .filters{margin-bottom:0}
+  .searchbox{position:relative;width:100%}
   .searchbox svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none}
   .searchbox input{width:100%;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 34px;color:var(--ink);font-family:var(--fu);font-size:13.5px;outline:none;transition:border-color .15s}
   .searchbox input:focus{border-color:var(--greenln)}
   .searchbox input::placeholder{color:var(--mut)}
   .searchclear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:18px;height:18px;border:none;background:#222a34;color:var(--ink2);border-radius:99px;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0}
   .searchclear.show{display:flex}
-  .pill{font-family:var(--fu);font-size:13.5px;font-weight:500;padding:8px 15px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}
+  .pill{flex:0 0 auto;font-family:var(--fu);font-size:13.5px;font-weight:500;padding:8px 15px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer;white-space:nowrap}
   .pill.active{background:var(--green);color:#08120c;border-color:var(--green)}
   .pill b{font-weight:600;opacity:.6;margin-left:5px}
   .list{display:flex;flex-direction:column}
@@ -141,7 +141,7 @@
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:#1b212b;color:var(--ink);border:1px solid var(--line2);font-family:var(--fu);font-size:13.5px;padding:11px 18px;border-radius:10px;transition:.25s;pointer-events:none;z-index:50}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   /* unlock modal */
-  .modal-bg{position:fixed;inset:0;background:rgba(8,10,14,.64);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal-bg{position:fixed;inset:0;background:rgba(6,8,11,.78);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
   .modal-bg.show{display:flex;animation:fade .2s ease}
   @keyframes fade{from{opacity:0}to{opacity:1}}
   .modal{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:34px 30px 30px;text-align:center;animation:pop .22s cubic-bezier(.2,.7,.2,1)}
@@ -170,9 +170,9 @@
   .rankstep .rn{flex-shrink:0;width:24px;height:24px;border-radius:99px;background:var(--greenbg);border:1px solid var(--greenln);color:var(--green);font-family:var(--fd);font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center}
   .rankstep .rt{font-family:var(--fu);font-size:13.5px;color:var(--ink2);line-height:1.5;padding-top:1px}
   .rankstep .rt b{color:var(--ink);font-weight:700}
-  .rankbox{position:relative;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:14px;margin:6px 0 14px}
-  .rankbox pre{margin:0;font-family:var(--fu);font-size:12px;line-height:1.55;color:var(--mut);white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto}
-  .rankcopy{position:absolute;top:10px;right:10px;font-family:var(--fu);font-size:12px;font-weight:700;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:6px 12px;cursor:pointer}
+  .rankbox{position:relative;margin:6px 0 14px}
+  .rankbox textarea.promptview{width:100%;height:130px;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:14px;color:var(--mut);font-family:var(--fu);font-size:12px;line-height:1.5;resize:vertical;outline:none;white-space:pre}
+  .rankcopy{position:absolute;top:10px;right:10px;font-family:var(--fu);font-size:12px;font-weight:700;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:6px 12px;cursor:pointer;z-index:2}
   .rankcopy.done{color:#08120c;background:var(--green)}
   .modal.wide textarea{width:100%;min-height:96px;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px;color:var(--ink);font-family:var(--fu);font-size:12.5px;line-height:1.5;resize:vertical;outline:none}
   .modal.wide textarea:focus{border-color:var(--greenln)}
@@ -262,7 +262,7 @@
       <div class="rankstep"><div class="rn">1</div><div class="rt"><b>Copy this prompt</b> and paste it into ChatGPT or Claude (free web version is fine), then send.</div></div>
       <div class="rankbox">
         <button class="rankcopy" id="rankCopyBtn" onclick="copyRankPrompt()">Copy</button>
-        <pre id="rankPrompt">Loading your top matches...</pre>
+        <textarea class="promptview" id="rankPrompt" readonly onclick="this.select()">Loading your top matches...</textarea>
       </div>
       <div class="rankstep"><div class="rn">2</div><div class="rt"><b>Copy the JSON</b> your AI returns and <b>paste it below</b>, then save.</div></div>
       <textarea id="rankIn" placeholder="Paste the JSON array your AI returned here..."></textarea>
@@ -426,12 +426,12 @@ function openRank(){
   document.getElementById("rankMsg").textContent = "";
   document.getElementById("rankIn").value = "";
   const pre = document.getElementById("rankPrompt");
-  if(RANK_PROMPT){ pre.textContent = RANK_PROMPT; return; }
-  pre.textContent = "Loading your top matches...";
+  if(RANK_PROMPT){ pre.value = RANK_PROMPT; return; }
+  pre.value = "Loading your top matches...";
   fetch(API+"/api/rank/byo",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
-    if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.textContent = d.prompt; }
-    else{ pre.textContent = ""; document.getElementById("rankMsg").className="modal-msg"; document.getElementById("rankMsg").textContent = d.error || "Couldn't build the prompt."; }
-  }).catch(()=>{ pre.textContent=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
+    if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.value = d.prompt; }
+    else{ pre.value = ""; document.getElementById("rankMsg").className="modal-msg"; document.getElementById("rankMsg").textContent = d.error || "Couldn't build the prompt."; }
+  }).catch(()=>{ pre.value=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
 }
 function closeRank(){ document.getElementById("rankBg").classList.remove("show"); }
 function copyRankPrompt(){
@@ -440,23 +440,27 @@ function copyRankPrompt(){
   const b=document.getElementById("rankCopyBtn"); b.textContent="Copied"; b.classList.add("done");
   setTimeout(()=>{b.textContent="Copy"; b.classList.remove("done");},1500);
 }
+let RANK_SAVING = false;
 function saveRank(){
+  if(RANK_SAVING) return;                 // ignore repeat clicks while a save is in flight
   const raw=document.getElementById("rankIn").value.trim();
   const msg=document.getElementById("rankMsg");
   if(!raw){ msg.className="modal-msg"; msg.textContent="Paste the JSON your AI returned first."; return; }
-  const btn=document.getElementById("rankSaveBtn"); btn.disabled=true;
+  const btn=document.getElementById("rankSaveBtn");
+  RANK_SAVING = true; btn.disabled=true; const label=btn.textContent; btn.textContent="Saving...";
+  msg.className="modal-msg"; msg.textContent="";
   fetch(API+"/api/rank/byo",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:raw})})
     .then(r=>r.json()).then(d=>{
-      btn.disabled=false;
       if(d.ok){
         msg.className="modal-msg ok";
         msg.textContent = "Saved "+d.saved+" ranking"+(d.saved===1?"":"s")+". Updating your feed...";
         RANK_PROMPT=""; // force a fresh prompt next time (those jobs are now verified)
-        setTimeout(()=>{ closeRank(); loadJobs(); toast("Feed updated with your AI rankings"); }, 900);
+        setTimeout(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; closeRank(); loadJobs(); toast("Feed updated with your AI rankings"); }, 700);
       }else{
+        RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
         msg.className="modal-msg"; msg.textContent = d.error || "Couldn't save those rankings.";
       }
-    }).catch(()=>{ btn.disabled=false; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+    }).catch(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
 }
 
 function render(){
