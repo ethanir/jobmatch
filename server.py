@@ -676,6 +676,73 @@ def health():
     return {"status": "ok", "source": source}
 
 
+# Human labels for the job systems we pull from (for the public coverage page).
+_SYSTEM_LABELS = {
+    "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
+    "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee",
+    "workable": "Workable", "adzuna": "Adzuna", "usajobs": "USAJOBS",
+    "workday": "Workday", "icims": "iCIMS",
+}
+
+
+@app.get("/api/coverage")
+def coverage():
+    """Self-measured coverage stats from Jobrolu's OWN live pool and registry.
+
+    Every number here is real and grows as we add jobs and companies; nothing
+    claims to know the total size of any outside job market, because that number
+    is genuinely unknowable. Roles are classified into fields by the same engine
+    that ranks them, so a single role can count toward more than one field (an ML
+    engineer is both software and data); field counts therefore do not sum to the
+    role total, and the page presents them as relative volume, not a share."""
+    import score
+    pool = _pool_list()  # READ-ONLY shared pool (DB-first, file fallback)
+    companies = set()
+    by_field = {}
+    by_system = {}
+    for j in pool:
+        title = j.get("title", "") or ""
+        comp = (j.get("company", "") or "").strip().lower()
+        if comp:
+            companies.add(comp)
+        src = (j.get("source") or j.get("ats") or "").strip().lower()
+        if src:
+            by_system[src] = by_system.get(src, 0) + 1
+        discs = score.role_disciplines(title)
+        if discs:
+            for d in discs:
+                by_field[d] = by_field.get(d, 0) + 1
+        else:
+            by_field["other"] = by_field.get("other", 0) + 1
+    # Companies we actively track (registry), which can exceed those with live
+    # openings right now. Guarded so a registry hiccup never breaks the page.
+    tracked = 0
+    try:
+        import registry
+        reg = registry.load()
+        tracked = len(reg) if isinstance(reg, (dict, list)) else 0
+    except Exception:
+        tracked = 0
+    fields = [{
+        "key": k,
+        "label": ("other roles" if k == "other"
+                  else score._DISC_NAMES.get(k, k.replace("_", " ").title())),
+        "count": v,
+    } for k, v in by_field.items()]
+    fields.sort(key=lambda x: -x["count"])
+    systems = [{"key": s, "label": _SYSTEM_LABELS.get(s, s.title()),
+                "count": by_system[s]} for s in by_system]
+    systems.sort(key=lambda x: -x["count"])
+    return {
+        "live_roles": len(pool),
+        "companies_live": len(companies),
+        "companies_tracked": tracked,
+        "fields": fields,
+        "systems": systems,
+        "updated": int(time.time()),
+    }
+
+
 @app.get("/api/jobs")
 def list_jobs(request: Request, tier: str = "all"):
     user_id = request.state.user_id
@@ -973,6 +1040,14 @@ def terms_page():
     if os.path.exists("terms.html"):
         return FileResponse("terms.html")
     raise HTTPException(status_code=404, detail="no terms.html found")
+
+
+@app.get("/coverage")
+def coverage_page():
+    """Serve the live coverage page (public)."""
+    if os.path.exists("coverage.html"):
+        return FileResponse("coverage.html")
+    raise HTTPException(status_code=404, detail="no coverage.html found")
 
 
 @app.get("/api/unlock/status")
