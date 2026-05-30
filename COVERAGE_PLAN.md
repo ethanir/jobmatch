@@ -8,35 +8,33 @@ value-per-effort, and the honesty rules for the public coverage page.
 
 ---
 
-## Where we stand today (verified)
+## Where we stand today (verified, live on /coverage)
 
-Sources we read now: Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee,
-Workable (the ATS sources, driven by our company registry), plus Adzuna and
-USAJOBS (keyword-search sources, both need API keys to be active).
+Live pool: ~52,200 open roles across ~1,516 tracked companies and 9 job systems.
 
-The honest picture, backed by current market data:
+Sources live now: Greenhouse (~28k roles), Ashby (~7k), Lever (~6.5k),
+SmartRecruiters (~4.4k), USAJOBS (~3k federal), Workday (~1.4k), the Simplify
+new-grad repo (~1.4k), Workable (~0.3k), and Recruitee. Adzuna (keyword snippets)
+is keyed and available. USAJOBS is now ON, adding federal coverage across fields.
 
-- The systems we read are the **right ones for tech and startups**. Greenhouse
-  is ranked the #1 ATS for both mid-market and enterprise on G2, and Ashby/Lever
-  are core to modern startup hiring.
-- We are **missing the enterprise giants**: Workday is used by ~39% of the
-  Fortune 500 (Workday + SAP SuccessFactors together ~52%), and iCIMS is used by
-  ~40% of the Fortune 100. These power most large-company, finance, healthcare,
-  government, and other non-tech professional hiring. We read none of them.
-- Biggest cheap gap: even within the systems we already support, our registry is
-  only ~515 companies. Greenhouse alone has thousands of company boards (commonly
-  cited at 4,000+, with trackers listing 11k-22k). So we are reaching a small
-  single-digit fraction of the companies we could reach with the code we already
-  have.
+By field, software is the deepest (~11k) and a large cross-field "other" bucket
+leads on raw count (~29k). The professional non-tech fields are live but still
+thin, and are the growth target: finance ~890, healthcare ~870, HR ~720,
+operations ~690, legal ~535, design ~380, data analytics ~330, education ~210.
 
-Rough, honest coverage estimates (not published as facts; the true denominator is
-unknowable):
+The honest gaps that remain:
 
-- Tech / new-grad today: ~10-20% of genuinely relevant open roles. Held down by
-  the 515-company registry and the absence of Workday / big-tech portals.
-- Tech after a full registry expansion (no new integrations): plausibly ~40-55%.
-- Non-tech professional fields today: well under 10%, because those roles live on
-  Workday / Taleo / iCIMS / USAJOBS, which we do not yet read.
+- Enterprise portals are still mostly unread. We now read some Workday, but iCIMS,
+  SAP SuccessFactors, and Oracle/Taleo (which power much large-employer finance,
+  healthcare, retail, and manufacturing hiring) are not integrated yet.
+- Within the systems we already support, the registry (~1,516 companies) is still
+  a small fraction of what is reachable. Greenhouse alone lists thousands of
+  boards, so there is room to keep growing with the code we already have.
+
+Rough, honest estimates (never published as facts; the true denominator is
+unknowable): tech / new-grad coverage is meaningful and climbing; non-tech is
+improving fast as USAJOBS and more diverse companies come in, but it still has the
+most headroom.
 
 ---
 
@@ -117,12 +115,39 @@ without any change to the page.
 
 ---
 
-## Immediate next actions
-1. Phase 1: assemble and import a large batch of Greenhouse/Lever/Ashby company
-   tokens into `registry.json`, including non-tech employers. (Biggest, cheapest
-   win; do this first.)
-2. Set the USAJOBS key for instant government coverage.
-3. Scope `from_workday(...)` against the cxs JSON API on two or three real tenants
-   (one bank, one hospital, one university) before building it out.
-4. Re-check the `/coverage` numbers after each batch; the page will reflect the
-   growth automatically.
+## Shipped recently
+- USAJOBS is live (federal coverage across every field); pool grew ~49k to ~52k.
+- `from_workday(...)` is built and live (a first batch of Workday tenants is in).
+- Performance: feed scoring is serialized per profile (no pile-ups or hangs), and
+  the cold scoring path now reads full descriptions only for roles with a
+  relevance signal, so first loads are much faster on the larger pool with the
+  exact same ranking.
+- Live coverage counter on the landing hero, in the sticky app header, and on the
+  coverage page, all reading one cheap `/api/stats` and staying in sync.
+- A `/coverage` link is now in both the landing nav and the app nav (reachable
+  everywhere, not just by direct URL).
+- An honest "recently added roles" ticker on the landing and coverage pages
+  (`/api/recent`): real titles and companies only, never synthetic motion.
+
+## Maximization strategy (current)
+The goal is the ultimate tool for EVERY field, so the priority is **diverse**
+coverage, not raw volume. The feed only surfaces each user's top matches, so more
+tech roles do little for a nurse or a teacher and only grow server memory. So:
+- Grow toward the thin non-tech fields first (healthcare, education, legal,
+  finance), via Workday enterprises (hospitals, universities, retailers) and the
+  more diverse ATSes (SmartRecruiters, Workable, Recruitee).
+- Grow in measured batches, verifying the site stays healthy after each, rather
+  than one large dump. We are deliberately not adding a per-company cap for now,
+  so the pool is unbounded; that makes measured, verified growth the safety net.
+- Watch `BASE_KEEP` (2000) and server memory as the pool climbs.
+
+## Next actions
+1. Assemble a diverse, non-tech-leaning batch of company tokens (Workday tenants
+   for hospitals / universities / retailers; SmartRecruiters / Workable in
+   healthcare, education, finance) and import into `registry.json`. Verify health.
+2. Add a Workday auto-discovery pattern to `registry.py` so new tenants seen in
+   results are retained, growing non-tech coverage over time.
+3. Evaluate iCIMS / SAP SuccessFactors / Oracle Taleo (the big non-tech reach),
+   scoping feasibility and terms before investing.
+4. Re-check `/coverage` after each batch; every counter reflects the growth on its
+   own.
