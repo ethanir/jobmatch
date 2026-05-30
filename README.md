@@ -56,8 +56,8 @@ The whole design exists to keep cost near zero while still using AI where it mat
   resume / profile            (onboard.py: PDF/DOCX, even scanned -> structured JSON via one cheap LLM call)
         |
         v
-  SOURCING                    7 ATS APIs + Adzuna aggregator + curated lists, self-growing
-        |                     company registry. ~2,000 live roles from 500+ companies.   $0
+  SOURCING                    7 ATS APIs + Adzuna + USAJOBS + curated lists, self-growing
+        |                     registry. 9 job systems, 100,000+ roles, 7,000+ companies.  $0
         v
   PREFILTER                   free, rule-based. Keeps on-target titles (tech by default,
         |                     professional fields in multi-field mode); scoring narrows.   $0

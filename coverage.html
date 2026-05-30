@@ -203,8 +203,12 @@ function render(d){
     return '<div class="stat"><div class="n">'+s.n+'</div><div class="l">'+s.l+'</div></div>';
   }).join("");
 
-  // Field bars, scaled to the largest field.
-  var fields=(d.fields||[]).filter(function(f){return f.count>0;});
+  // Field bars, scaled to the largest NAMED field. The "other" bucket
+  // (uncategorized long-tail roles) is shown as an honest count below rather
+  // than as a bar, so it never dwarfs the real fields and they stay readable.
+  var allFields=(d.fields||[]).filter(function(f){return f.count>0;});
+  var other=null, fields=[];
+  allFields.forEach(function(f){ if(f.key==="other"){ other=f; } else { fields.push(f); } });
   var fbox=document.getElementById("fields");
   if(fields.length){
     var max=fields[0].count||1;
@@ -214,6 +218,9 @@ function render(d){
            + '<div class="ftrack"><span class="ffill" data-w="'+pct+'"></span></div>'
            + '<div class="fcount">'+fmt(f.count)+'</div></div>';
     }).join("");
+    if(other && other.count>0){
+      fbox.innerHTML += '<p class="fnote" style="margin-top:15px">Plus '+fmt(other.count)+' roles in general or cross-functional categories that do not map to a single profession (for example retail, warehouse, food service, driving, and broad generalist titles).</p>';
+    }
     // animate fills after layout
     requestAnimationFrame(function(){ requestAnimationFrame(function(){
       var fills=document.querySelectorAll(".ffill");
