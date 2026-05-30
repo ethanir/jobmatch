@@ -289,7 +289,16 @@
   </div>
 </section>
 
-<div class="foot">Jobrolu · AI job matching for every professional field · jobrolu.com</div>
+<div class="foot">
+  Jobrolu · AI job matching for every professional field · jobrolu.com
+  <div style="margin-top:12px">
+    <a href="/privacy" style="color:var(--mut)">Privacy</a>
+    &nbsp;·&nbsp;
+    <a href="/terms" style="color:var(--mut)">Terms</a>
+    &nbsp;·&nbsp;
+    <a href="mailto:jobrolusupport@gmail.com" style="color:var(--mut)">Support</a>
+  </div>
+</div>
 
 <script>
 function lsignout(e){ if(e) e.preventDefault(); fetch("/api/auth/logout",{method:"POST",credentials:"same-origin"}).catch(function(){}).then(function(){ location.reload(); }); }

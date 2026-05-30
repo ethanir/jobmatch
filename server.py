@@ -954,6 +954,22 @@ def unlock_page():
     raise HTTPException(status_code=404, detail="no unlock.html found")
 
 
+@app.get("/privacy")
+def privacy_page():
+    """Serve the privacy policy (public)."""
+    if os.path.exists("privacy.html"):
+        return FileResponse("privacy.html")
+    raise HTTPException(status_code=404, detail="no privacy.html found")
+
+
+@app.get("/terms")
+def terms_page():
+    """Serve the terms of service (public)."""
+    if os.path.exists("terms.html"):
+        return FileResponse("terms.html")
+    raise HTTPException(status_code=404, detail="no terms.html found")
+
+
 @app.get("/api/unlock/status")
 def unlock_status(request: Request):
     """Lets the UI know whether this browser is already unlocked, so it can show
