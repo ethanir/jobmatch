@@ -193,6 +193,14 @@
   .spinner{width:32px;height:32px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--green);animation:spin .75s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   .loadwrap .lt{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--mut);letter-spacing:.01em}
+  /* full-width centered loader for the first feed load (the grid alone would
+     show an off-center spinner in just the left column) */
+  .feedloading{display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:62vh;gap:16px;animation:flfade .35s ease}
+  @keyframes flfade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .fl-spinner{width:44px;height:44px;border-radius:50%;border:3.5px solid var(--line2);border-top-color:var(--green);animation:spin .8s linear infinite;box-shadow:0 0 0 7px rgba(79,227,155,.05)}
+  .fl-title{font-family:var(--fd);font-size:21px;font-weight:600;color:var(--ink);letter-spacing:.01em}
+  .fl-sub{font-family:var(--fu);font-size:13.5px;font-weight:600;color:var(--mut);max-width:340px;line-height:1.5}
+  @media(prefers-reduced-motion:reduce){.fl-spinner{animation-duration:1.6s}}
   @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.6s}.loadbar.on i{animation:none}}
   /* application status: a compact dropdown in the detail's top corner + a small
      coloured pill on any list row that has a status set */
@@ -317,7 +325,13 @@
   </div>
 </header>
 
-<div class="wrap"><main>
+<div class="wrap">
+<div class="feedloading" id="feedLoading">
+  <div class="fl-spinner"></div>
+  <div class="fl-title">Finding your matches</div>
+  <div class="fl-sub">Reading every open role and ranking it against your profile</div>
+</div>
+<main>
   <section>
     <div id="rankBannerWrap"></div>
     <div class="toolbar">
@@ -414,11 +428,15 @@ function loadingSpinner(label){
 function showLoading(on){ const lb=document.getElementById("loadbar"); if(lb) lb.classList.toggle("on", !!on); }
 
 async function loadJobs(){
-  const list = document.getElementById("list");
-  if(!JOBS.length){
-    list.innerHTML = loadingSpinner();
-    const dw = document.getElementById("detailWrap");
-    if(dw) dw.innerHTML = "";
+  const main = document.querySelector("main");
+  const fl = document.getElementById("feedLoading");
+  const firstLoad = !JOBS.length;
+  if(firstLoad){
+    // First load: show the centered full-width loader and hide the grid, so the
+    // spinner is never stranded in the narrow left column. Refreshes (JOBS
+    // already present) keep the grid and use the slim top progress bar instead.
+    if(fl) fl.style.display = "flex";
+    if(main) main.style.display = "none";
   }
   showLoading(true);
   try{
@@ -437,9 +455,13 @@ async function loadJobs(){
     updateMeta();
     renderRankBanner();
     render();
+    if(fl) fl.style.display = "none";
+    if(main) main.style.display = "";
     showLoading(false);
   }catch(e){
     showLoading(false);
+    if(fl) fl.style.display = "none";
+    if(main) main.style.display = "";
     document.getElementById("list").innerHTML = '<div class="empty">Can\'t reach the server.<br>Start it with <b>uvicorn server:app --port 8000</b>, then reload.</div>';
   }
 }
@@ -476,6 +498,7 @@ function fmtDur(secs){
    (hours/days), so it reads as a label, not a live timer. */
 function updateMeta(){
   const el=document.getElementById("meta"); if(!el) return;
+  if(!JOBS.length){ el.textContent=""; return; }   // no "0 roles" flash while loading
   let s = JOBS.length + " roles";
   if(LAST_SCAN){
     const ago = Date.now()/1000 - LAST_SCAN;

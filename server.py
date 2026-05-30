@@ -39,6 +39,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -90,6 +91,10 @@ def _run_refresh(profile_path, top_n=None, draft=True):
                             finished_at=time.time())
 
 app = FastAPI(title="Jobrolu API", version="1.0")
+# Compress responses over ~1KB. The feed payload is the big one (hundreds of KB
+# to ~1MB of JSON); gzip typically shrinks it 5-7x, which is the single biggest
+# win for how fast the feed arrives, with no change to behavior.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
@@ -1697,12 +1702,13 @@ def _sanitize_fit(r):
 
 
 @app.get("/api/rank/byo")
-def rank_export(request: Request, n: int = RANK_EXPORT_MAX, depth: str = "broad"):
+def rank_export(request: Request, n: int = RANK_EXPORT_MAX, depth: Optional[str] = None):
     """Return a ready-to-paste prompt (and the jobs it covers) so the current
     user can rank their top jobs with their own AI. A Pro feature (gated below);
     the ranking itself costs Jobrolu nothing because it runs on the user's own
-    AI. `depth` picks a breadth/detail preset (broad|balanced|deep); `n` is a
-    fallback for callers that pass a raw count. Needs a profile."""
+    AI. `depth` picks a breadth/detail preset (broad|balanced|deep) and the UI
+    always sends it; when it is absent a raw `n` count is honored (clamped).
+    Needs a profile."""
     user_id = request.state.user_id
     gate = _pro_gate(request)
     if gate:
