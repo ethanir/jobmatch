@@ -137,18 +137,6 @@ CREATE TABLE IF NOT EXISTS job_status (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, job_id)
 );
-
--- Durable cache for one profile's scored feed base (the top BASE_KEEP jobs the
--- free heuristic ranks for a profile). cache_key is the profile hash; token is
--- the pool version it was scored against, so a stale token reads as a miss and
--- the row is overwritten on the next compute. Lets a cold start skip the heavy
--- re-scoring (and the full pool load) instead of repeating it on every redeploy.
-CREATE TABLE IF NOT EXISTS scored_cache (
-    cache_key   TEXT        PRIMARY KEY,
-    token       TEXT        NOT NULL,
-    data        TEXT        NOT NULL,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 """
 
 
@@ -692,57 +680,3 @@ def load_pool(conn):
         return json.loads(row["data"])
     except Exception:
         return None
-
-
-# Keep the durable scored-base cache small: only the most recently used profiles
-# are worth keeping warm across restarts. Older rows are pruned on every save.
-_SCORED_CACHE_MAX = 50
-
-
-def get_scored_cache(conn, cache_key, token):
-    """Return one profile's cached scored base if a row exists AND it was scored
-    against the current pool token, else None. A token mismatch (the pool changed
-    since it was cached) transparently behaves like a miss, so callers recompute."""
-    if not conn or not cache_key:
-        return None
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT data FROM scored_cache WHERE cache_key = %s AND token = %s",
-            (cache_key, str(token)),
-        )
-        row = cur.fetchone()
-    if not row or not row.get("data"):
-        return None
-    try:
-        return json.loads(row["data"])
-    except Exception:
-        return None
-
-
-def save_scored_cache(conn, cache_key, token, jobs) -> None:
-    """Persist one profile's scored base under cache_key, stamped with the pool
-    token it was scored against. Overwrites any older row for that profile, then
-    prunes the table to the most recently used rows so it stays bounded."""
-    if not conn or not cache_key or jobs is None:
-        return
-    payload = json.dumps(jobs)
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO scored_cache (cache_key, token, data, updated_at) "
-            "VALUES (%s, %s, %s, NOW()) "
-            "ON CONFLICT (cache_key) DO UPDATE SET "
-            "  token = EXCLUDED.token, data = EXCLUDED.data, updated_at = NOW()",
-            (cache_key, str(token), payload),
-        )
-    conn.commit()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM scored_cache WHERE cache_key NOT IN ("
-                "  SELECT cache_key FROM scored_cache ORDER BY updated_at DESC LIMIT %s"
-                ")",
-                (_SCORED_CACHE_MAX,),
-            )
-        conn.commit()
-    except Exception:
-        pass

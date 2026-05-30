@@ -448,6 +448,27 @@ _BASE_CACHE = {}                      # profile-hash -> {"token","jobs"}
 _BASE_LOCK = threading.Lock()
 _BASE_MAX_PROFILES = 12               # bound memory: keep recent profiles only
 
+# Per-profile locks that serialize the heavy scoring. The point is that if several
+# requests for the same profile arrive before the first finishes (a user mashing
+# refresh, or two tabs), only ONE scores the pool; the others wait and then read
+# the cached result. Bounded so the dict cannot grow without limit: dropping an
+# old lock can at worst cause one extra recompute, never a wrong result, because
+# the real guard is the cache re-check under _BASE_LOCK.
+_COMPUTE_LOCKS = {}
+_COMPUTE_LOCKS_GUARD = threading.Lock()
+_COMPUTE_LOCKS_MAX = 64
+
+
+def _compute_lock(key):
+    with _COMPUTE_LOCKS_GUARD:
+        lk = _COMPUTE_LOCKS.get(key)
+        if lk is None:
+            if len(_COMPUTE_LOCKS) >= _COMPUTE_LOCKS_MAX:
+                _COMPUTE_LOCKS.pop(next(iter(_COMPUTE_LOCKS)), None)
+            lk = threading.Lock()
+            _COMPUTE_LOCKS[key] = lk
+        return lk
+
 
 def _pool_token():
     """A cheap value that changes whenever the pool changes, used to invalidate
@@ -481,29 +502,27 @@ def _scored_base(profile):
     (pool token, profile hash). Each entry is a plain dict carrying the fields
     the feed and the rank export need, plus the heuristic _score. Recomputed
     only when the pool or the profile changes."""
-    import score
     token = _pool_token()
     key = _profile_hash(profile)
     with _BASE_LOCK:
         hit = _BASE_CACHE.get(key)
         if hit and hit["token"] == token:
             return hit["jobs"]
-    # Durable cache (Postgres): the heavy scoring below otherwise reruns on every
-    # redeploy and idle container restart, because the in-memory cache starts
-    # empty. A hit here skips both the full pool load and the scoring, so a cold
-    # start is instant as long as the pool has not changed since it was cached.
-    # Any failure falls through to a normal recompute.
-    if db.has_db():
-        try:
-            with db.get_conn() as conn:
-                if conn:
-                    cached = db.get_scored_cache(conn, key, str(token))
-                    if cached is not None:
-                        with _BASE_LOCK:
-                            _BASE_CACHE[key] = {"token": token, "jobs": cached}
-                        return cached
-        except Exception:
-            pass
+    # Serialize the heavy scoring per profile so refreshing can never pile up:
+    # only the first request computes, the rest wait here and return its result.
+    with _compute_lock(key):
+        with _BASE_LOCK:                    # re-check: someone may have just done it
+            hit = _BASE_CACHE.get(key)
+            if hit and hit["token"] == token:
+                return hit["jobs"]
+        return _compute_scored_base(profile, token, key)
+
+
+def _compute_scored_base(profile, token, key):
+    """Heavy path, run only while holding the per-profile compute lock: score the
+    whole pool for this profile, keep the top BASE_KEEP, cache them in memory, and
+    return them. Runs at most once per profile per pool version."""
+    import score
     pool = _raw_pool()          # shallow copies, safe for the scorer to mutate
     if not pool:
         return []
@@ -530,15 +549,6 @@ def _scored_base(profile):
             # evict an arbitrary existing entry to stay bounded
             _BASE_CACHE.pop(next(iter(_BASE_CACHE)), None)
         _BASE_CACHE[key] = {"token": token, "jobs": base}
-    # Persist so future cold starts read this instead of re-scoring. Guarded so a
-    # DB hiccup can never break a feed load; the in-memory cache above still holds.
-    if db.has_db():
-        try:
-            with db.get_conn() as conn:
-                if conn:
-                    db.save_scored_cache(conn, key, str(token), base)
-        except Exception:
-            pass
     return base
 
 
