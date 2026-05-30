@@ -488,6 +488,22 @@ def _scored_base(profile):
         hit = _BASE_CACHE.get(key)
         if hit and hit["token"] == token:
             return hit["jobs"]
+    # Durable cache (Postgres): the heavy scoring below otherwise reruns on every
+    # redeploy and idle container restart, because the in-memory cache starts
+    # empty. A hit here skips both the full pool load and the scoring, so a cold
+    # start is instant as long as the pool has not changed since it was cached.
+    # Any failure falls through to a normal recompute.
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    cached = db.get_scored_cache(conn, key, str(token))
+                    if cached is not None:
+                        with _BASE_LOCK:
+                            _BASE_CACHE[key] = {"token": token, "jobs": cached}
+                        return cached
+        except Exception:
+            pass
     pool = _raw_pool()          # shallow copies, safe for the scorer to mutate
     if not pool:
         return []
@@ -514,6 +530,15 @@ def _scored_base(profile):
             # evict an arbitrary existing entry to stay bounded
             _BASE_CACHE.pop(next(iter(_BASE_CACHE)), None)
         _BASE_CACHE[key] = {"token": token, "jobs": base}
+    # Persist so future cold starts read this instead of re-scoring. Guarded so a
+    # DB hiccup can never break a feed load; the in-memory cache above still holds.
+    if db.has_db():
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    db.save_scored_cache(conn, key, str(token), base)
+        except Exception:
+            pass
     return base
 
 
