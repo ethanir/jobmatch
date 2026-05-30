@@ -446,7 +446,12 @@ def heuristic_score(job, skills, titles, locs, desired="entry",
     # --- skill overlap (whole-word; saturates so it can't dominate) --------
     matched = []
     if desc_scan:
-        matched = [s for s in skills if s and _word_in(s, blob)]
+        # Substring pre-check before the (slower) whole-word regex. A skill can
+        # only match as a whole token if it appears as a substring at all, so
+        # `s in blob` is a necessary condition and gates identically; it just
+        # skips the regex for the many skills absent from a given posting, which
+        # is where the time went on a large pool. Results are byte-identical.
+        matched = [s for s in skills if s and s in blob and _word_in(s, blob)]
         n = len(matched)
         score += min(n, 3) * 6 + max(0, min(n - 3, 5)) * 2     # up to 18 + 10 = 28
         if n:
