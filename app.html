@@ -661,8 +661,22 @@ function saveRank(){
   const btn=document.getElementById("rankSaveBtn");
   RANK_SAVING = true; btn.disabled=true; const label=btn.textContent; btn.textContent="Saving...";
   msg.className="modal-msg"; msg.textContent="";
-  fetch(API+"/api/rank/byo",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:raw})})
+  // Never hang on "Saving...": abort a stalled request (server redeploying, a
+  // dropped connection) after 30s and recover with a clear message.
+  const ctrl = new AbortController();
+  const killer = setTimeout(()=>{ try{ ctrl.abort(); }catch(e){} }, 30000);
+  fetch(API+"/api/rank/byo",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:raw}),signal:ctrl.signal})
     .then(r=>r.json()).then(d=>{
+      clearTimeout(killer);
+      if(d.ok && d.saved===0 && d.already){
+        // Already saved (a refresh mid-save, or the same reply sent twice). Don't
+        // alarm: clear the box and pull the next batch so they can keep going.
+        RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
+        document.getElementById("rankIn").value="";
+        msg.className="modal-msg ok"; msg.textContent = d.message || "Those were already saved. Loaded your next batch.";
+        loadJobs(); loadRankPrompt();
+        return;
+      }
       if(d.ok){
         msg.className="modal-msg ok";
         msg.textContent = "Saved "+d.saved+" ranking"+(d.saved===1?"":"s")+". Updating your feed...";
@@ -676,7 +690,13 @@ function saveRank(){
         RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
         msg.className="modal-msg"; msg.textContent = d.error || "Couldn't save those rankings.";
       }
-    }).catch(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; msg.className="modal-msg"; msg.textContent="Can't reach the server."; });
+    }).catch(()=>{
+      clearTimeout(killer);
+      RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
+      msg.className="modal-msg";
+      msg.textContent="That took too long or the connection dropped. Some may have saved, reopen to check.";
+      loadJobs();    // refresh counts so any rankings that did land still show up
+    });
 }
 
 function render(){

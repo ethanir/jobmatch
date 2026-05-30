@@ -1791,5 +1791,24 @@ async def rank_import(request: Request):
         if saved == 0:
             return {"ok": False, "error": "Couldn't save those rankings. Try again."}
     if saved == 0:
+        # Tell apart "these already saved" (a refresh mid-save, or a double
+        # submit of the same reply) from a genuinely unrecognized paste, so the
+        # user is never told they did something wrong when their rankings in fact
+        # already landed.
+        already = {}
+        try:
+            with db.get_conn() as conn:
+                if conn:
+                    already = db.get_rankings_map(conn, user_id)
+        except Exception:
+            already = {}
+        hits = 0
+        for r in rankings[:RANK_IMPORT_MAX]:
+            jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
+            if jid and jid in already:
+                hits += 1
+        if hits:
+            return {"ok": True, "saved": 0, "already": hits,
+                    "message": "Those were already saved. Loaded your next batch."}
         return {"ok": False, "error": "None of those rankings matched your current jobs. Re-copy the prompt and try again."}
     return {"ok": True, "saved": saved, "skipped": skipped}
