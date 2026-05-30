@@ -367,7 +367,7 @@ document.getElementById("resumeFile").addEventListener("change",function(){
         }
       }
       else{msg.className="msg err";msg.textContent=d.error||"Could not read that file.";}
-    }).catch(()=>{msg.className="msg err";msg.textContent="Can't reach the server. Start it with: uvicorn server:app --port 8000";});
+    }).catch(()=>{msg.className="msg err";msg.textContent="We couldn't reach the server. Check your connection and try again.";});
 });
 
 /* ---------- manual profile form ---------- */
@@ -462,7 +462,7 @@ function saveForm(){
     .then(r=>r.json()).then(d=>{
       if(d.ok){msg.className="msg ok";msg.textContent="Saved. Taking you to your feed...";setTimeout(()=>location.href="/app",900);}
       else{btn.disabled=false;msg.className="msg err";msg.textContent=d.error||"Could not save.";}
-    }).catch(()=>{btn.disabled=false;msg.className="msg err";msg.textContent="Can't reach the server. Start it with: uvicorn server:app --port 8000";});
+    }).catch(()=>{btn.disabled=false;msg.className="msg err";msg.textContent="We couldn't reach the server. Check your connection and try again.";});
 }
 
 function prefillForm(p){

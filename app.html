@@ -59,23 +59,6 @@
   .up-note{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:13px;line-height:1.5}
   .fbar-btn.lock{background:none;color:var(--green);border:1px solid var(--greenln)}
   .fbar-btn.lock:hover{background:var(--greenbg);opacity:1}
-  /* unlock control */
-  .lockbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:10px 15px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
-  .lockbtn:hover{border-color:var(--green);color:var(--green)}
-  .lockbtn .ic-check{display:none}
-  .lockbtn.unlocked{color:#08120c;background:var(--green);border-color:var(--green);cursor:default;box-shadow:0 0 0 3px rgba(79,227,155,.16)}
-  .lockbtn.unlocked:hover{color:#08120c;border-color:var(--green)}
-  .lockbtn.unlocked .ic-lock{display:none}
-  .lockbtn.unlocked .ic-check{display:inline}
-  /* refresh */
-  .refresh{display:inline-flex;align-items:center;gap:9px;font-family:var(--fu);font-size:14px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:10px;padding:11px 18px;cursor:pointer;transition:opacity .15s,background .15s,color .15s}
-  .refresh:hover{opacity:.9}
-  .refresh:disabled{opacity:.55;cursor:default}
-  .refresh svg{transition:transform .6s ease}
-  .refresh.spin svg{animation:spin 1s linear infinite}
-  /* locked refresh reads as inactive but is still clickable (opens unlock) */
-  .refresh.locked{background:#222a34;color:var(--mut);cursor:pointer}
-  .refresh.locked:hover{opacity:1;color:var(--ink2)}
   @keyframes spin{to{transform:rotate(360deg)}}
   /* progress */
   .prog{overflow:hidden;max-height:0;transition:max-height .35s ease}
@@ -189,10 +172,6 @@
   .loadbar i{position:absolute;height:100%;width:38%;left:-38%;border-radius:0 3px 3px 0;background:linear-gradient(90deg,transparent,var(--green),transparent)}
   .loadbar.on i{animation:lbar 1.15s ease-in-out infinite}
   @keyframes lbar{0%{left:-38%}55%{left:58%}100%{left:110%}}
-  .loadwrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:84px 24px;text-align:center}
-  .spinner{width:32px;height:32px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--green);animation:spin .75s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .loadwrap .lt{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--mut);letter-spacing:.01em}
   /* full-width centered loader for the first feed load (the grid alone would
      show an off-center spinner in just the left column) */
   .feedloading{display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:62vh;gap:16px;animation:flfade .35s ease}
@@ -201,7 +180,7 @@
   .fl-title{font-family:var(--fd);font-size:21px;font-weight:600;color:var(--ink);letter-spacing:.01em}
   .fl-sub{font-family:var(--fu);font-size:13.5px;font-weight:600;color:var(--mut);max-width:340px;line-height:1.5}
   @media(prefers-reduced-motion:reduce){.fl-spinner{animation-duration:1.6s}}
-  @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.6s}.loadbar.on i{animation:none}}
+  @media(prefers-reduced-motion:reduce){.loadbar.on i{animation:none}}
   /* application status: a compact dropdown in the detail's top corner + a small
      coloured pill on any list row that has a status set */
   .d-right{display:flex;flex-direction:column;align-items:flex-end;gap:13px}
@@ -260,7 +239,6 @@
   .fbar-ic{flex-shrink:0;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center}
   .fbar-item.verify .fbar-ic{background:var(--greenbg);border:1px solid var(--greenln);color:var(--green)}
   .fbar-item.fresh .fbar-ic{background:var(--amberbg);border:1px solid var(--amberln);color:var(--amber)}
-  .fbar-sp{flex:1;min-width:8px}
   .fbar-btn{flex-shrink:0;font-family:var(--fu);font-size:12.5px;font-weight:700;color:#08120c;background:var(--green);border:none;border-radius:8px;padding:7px 12px;cursor:pointer;transition:opacity .15s;white-space:nowrap}
   .fbar-btn:hover{opacity:.9}
   .modal.wide{max-width:560px;text-align:left}
@@ -422,9 +400,6 @@ function dotClass(j){ if(j.tier==="strong"&&verified(j)) return ""; if(j.tier===
 function ringColor(j){ if(!verified(j)) return "#7e8a96"; if(j.tier==="strong") return "#4fe39b"; if(j.tier==="possible") return "#e3c14f"; return "#7e8a96"; }
 
 /* ---------- feed ---------- */
-function loadingSpinner(label){
-  return '<div class="loadwrap"><div class="spinner"></div><div class="lt">'+(label||"Loading your matches")+'</div></div>';
-}
 function showLoading(on){ const lb=document.getElementById("loadbar"); if(lb) lb.classList.toggle("on", !!on); }
 
 async function loadJobs(){
@@ -462,7 +437,7 @@ async function loadJobs(){
     showLoading(false);
     if(fl) fl.style.display = "none";
     if(main) main.style.display = "";
-    document.getElementById("list").innerHTML = '<div class="empty">Can\'t reach the server.<br>Start it with <b>uvicorn server:app --port 8000</b>, then reload.</div>';
+    document.getElementById("list").innerHTML = '<div class="empty">We can\'t reach the server right now.<br>Check your connection and reload in a moment.</div>';
   }
 }
 
