@@ -356,8 +356,7 @@ document.getElementById("resumeFile").addEventListener("change",function(){
     .then(r=>r.json()).then(d=>{
       if(d.ok && d.profile){
         const p=d.profile;
-        const sk=p.skills||{};
-        const skillCount=[].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).length;
+        const skillCount=allSkills(p).length;
         const got = skillCount>0 || (p.target_titles||[]).length>0 || !!p.name;
         if(got){
           msg.className="msg ok";msg.textContent="Read your resume. Review the details below.";
@@ -439,9 +438,8 @@ function buildProfile(){
   base.requires_sponsorship = document.getElementById("fSpon").checked;
   base.target_titles = splitList(val("fTitles"));
   base.years_experience = parseInt(val("fExp")||"0",10);
-  base.skills = Object.assign({}, base.skills||{}, {
-    languages: splitList(val("fSkills")), frameworks: [], tools: [], databases: []
-  });
+  base.skills_general = splitList(val("fSkills"));   // field-agnostic skills (any profession)
+  base.skills = {};                                  // skills now live in skills_general
   base.preferences = Object.assign({}, base.preferences||{}, {
     remote_ok: ws==="remote"||ws==="either",
     onsite_ok: ws==="onsite"||ws==="either",
@@ -474,7 +472,7 @@ function prefillForm(p){
   setVal("fEmail", p.email||"");
   setVal("fTitles", (p.target_titles||[]).join(", "));
   const sk=p.skills||{};
-  setVal("fSkills", [].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[]).join(", "));
+  setVal("fSkills", allSkills(p).join(", "));
   const pref=p.preferences||{};
   let locs=(pref.locations||[]).join("; ");
   if(!locs && p.location) locs=p.location;   // fall back to the resume's home city
@@ -506,9 +504,15 @@ function esc(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g
 function expLabel(ye){ if(ye==null) return "Not specified"; if(ye<=0) return "Student / new grad"; if(ye<=2) return "1 to 2 years"; if(ye<=5) return "3 to 5 years"; return "5+ years"; }
 function workLabel(pref){ pref=pref||{}; if(pref.remote_ok && !pref.onsite_ok) return "Remote only"; if(!pref.remote_ok && pref.onsite_ok) return "Onsite only"; return "Remote or onsite"; }
 function pvChips(arr){ if(!arr||!arr.length) return '<span class="pv-empty">None listed</span>'; return arr.map(function(s){return '<span class="pv-chip">'+esc(s)+'</span>';}).join(""); }
+function allSkills(p){
+  p=p||{}; var sk=p.skills||{};
+  var raw=[].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[],sk.cloud||[],sk.other||[],p.skills_general||[]);
+  var seen={},out=[];
+  raw.forEach(function(s){ if(s==null) return; var t=String(s).trim(); if(!t) return; var k=t.toLowerCase(); if(!seen[k]){seen[k]=1;out.push(t);} });
+  return out;
+}
 function renderProfileView(p){
-  var sk=p.skills||{};
-  var skills=[].concat(sk.languages||[],sk.frameworks||[],sk.tools||[],sk.databases||[],sk.other||[]);
+  var skills=allSkills(p);
   var pref=p.preferences||{};
   var locs=(pref.locations||[]); if(!locs.length && p.location) locs=[p.location];
   var name=p.name||"";
