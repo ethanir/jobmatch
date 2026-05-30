@@ -39,6 +39,12 @@
   .acct-email{font-family:var(--fu);font-size:12.5px;color:var(--mut);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .signout{font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s}
   .signout:hover{border-color:var(--greenln);color:var(--green)}
+  /* owner-only manual refresh; hidden unless this browser is unlocked */
+  .hdr-refresh{display:inline-flex;align-items:center;gap:7px;font-family:var(--fu);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s,opacity .15s}
+  .hdr-refresh:hover{border-color:var(--greenln);color:var(--green)}
+  .hdr-refresh:disabled{opacity:.6;cursor:default;border-color:var(--line2);color:var(--ink2)}
+  .hdr-refresh svg{transition:transform .6s ease}
+  .hdr-refresh.spin svg{animation:spin 1s linear infinite}
   .plan-pill{font-family:var(--fu);font-size:12px;font-weight:800;letter-spacing:.02em;border-radius:999px;padding:5px 11px;cursor:pointer;border:1px solid var(--line2);color:var(--ink2);background:none;transition:border-color .15s,color .15s;white-space:nowrap}
   .plan-pill:hover{border-color:var(--greenln);color:var(--green)}
   .plan-pill.pro{color:var(--green);border-color:var(--greenln);background:var(--greenbg);cursor:default}
@@ -291,6 +297,10 @@
       </nav>
     </div>
     <div class="right">
+      <button class="hdr-refresh" id="hdrRefresh" onclick="ownerRefresh()" style="display:none" title="Pull new jobs from every source now">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        <span id="hdrRefreshTx">Refresh</span>
+      </button>
       <span class="meta" id="meta"></span>
       <button class="plan-pill" id="planPill" onclick="openUpgrade()" style="display:none"></button>
       <div class="acct">
@@ -412,7 +422,7 @@ async function loadJobs(){
     // empty; this keeps the default useful for every kind of feed.
     const cc = counts();
     if(JOBS.length && !cc[FILTER]){ FILTER = cc.strong ? "strong" : cc.possible ? "possible" : "all"; }
-    document.getElementById("meta").textContent = JOBS.length + " roles";
+    updateMeta();
     renderRankBanner();
     render();
     showLoading(false);
@@ -449,6 +459,21 @@ function fmtDur(secs){
   const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60);
   return h>0 ? (h+"h "+m+"m") : (m+"m");
 }
+/* Roles count plus a quiet, static freshness note in the header. Replaces the
+   old ticking countdown that used to sit in the left card; coarse on purpose
+   (hours/days), so it reads as a label, not a live timer. */
+function updateMeta(){
+  const el=document.getElementById("meta"); if(!el) return;
+  let s = JOBS.length + " roles";
+  if(LAST_SCAN){
+    const ago = Date.now()/1000 - LAST_SCAN;
+    let f = "just now";
+    if(ago >= 86400) f = Math.round(ago/86400)+"d ago";
+    else if(ago >= 3600) f = Math.round(ago/3600)+"h ago";
+    s += " \u00b7 updated " + f;
+  }
+  el.textContent = s;
+}
 function renderRankBanner(){
   const wrap = document.getElementById("rankBannerWrap");
   if(!wrap) return;
@@ -484,23 +509,11 @@ function renderRankBanner(){
         '<span class="fbar-tx">All <b>'+total+'</b> verified</span>'+
       '</div>';
   }
-  // Fresh: the countdown to the next automatic scan (or how long since the last).
-  const fTip = "New openings are pulled in automatically on a schedule. Refresh (top right, needs the code) pulls them now.";
-  let label;
-  if(AUTO_SCAN_ON && NEXT_SCAN){
-    const secs = NEXT_SCAN - Date.now()/1000;
-    label = secs > 45 ? ("Next scan in <b>"+fmtDur(secs)+"</b>") : "Scanning for new jobs<b>\u2026</b>";
-  } else if(LAST_SCAN){
-    label = "Jobs updated <b>"+fmtDur(Date.now()/1000 - LAST_SCAN)+" ago</b>";
-  } else {
-    label = "<b>"+total+"</b> live roles";
-  }
-  const fresh =
-    '<div class="fbar-item fresh" title="'+fTip+'">'+
-      '<span class="fbar-ic">'+refresh+'</span>'+
-      '<span class="fbar-tx">'+label+'</span>'+
-    '</div>';
-  wrap.innerHTML = '<div class="fbar">'+verify+'<div class="fbar-sp"></div>'+fresh+'</div>';
+  // The next-scan freshness now lives in the header as a quiet, static note, so
+  // the left card carries only the rank/verify CTA and stays uncluttered. The
+  // automatic scan still runs on its schedule; tickScan() pulls new jobs in
+  // silently when one lands.
+  wrap.innerHTML = '<div class="fbar">'+verify+'</div>';
 }
 
 /* The next-scan countdown. Derived from /api/scan/schedule (the pool's last
@@ -514,10 +527,12 @@ async function fetchSchedule(){
     AUTO_SCAN_ON = !!s.auto;
   }catch(e){ NEXT_SCAN = null; AUTO_SCAN_ON = false; }
   renderRankBanner();
+  updateMeta();
   if(!SCAN_TICK) SCAN_TICK = setInterval(tickScan, 30000);
 }
 function tickScan(){
   renderRankBanner();
+  updateMeta();
   // Once the timer is up, re-check the schedule; if a fresh scan landed, pull the
   // new jobs into the feed so they appear without a manual reload.
   if(AUTO_SCAN_ON && NEXT_SCAN && (Date.now()/1000 > NEXT_SCAN + 5)){
@@ -821,9 +836,62 @@ async function signOut(){
   location.replace("/signin");
 }
 
+/* Owner-only manual refresh. The button stays hidden unless this browser is
+   unlocked with the access code (done once at /unlock); regular users never see
+   it. Clicking pulls fresh jobs from every source, shows live progress, then
+   reloads the feed. The 24h auto-scan still runs on its own regardless. */
+let REFRESHING=false, REFRESH_SAW_RUN=false, REFRESH_WAIT=0;
+async function checkUnlocked(){
+  try{
+    const s = await fetch(API+"/api/unlock/status",{credentials:"same-origin"}).then(r=>r.json());
+    if(s && s.unlocked){ const b=document.getElementById("hdrRefresh"); if(b) b.style.display=""; }
+  }catch(e){}
+}
+function setRefreshUI(on, label){
+  const b=document.getElementById("hdrRefresh"), t=document.getElementById("hdrRefreshTx");
+  if(b){ b.disabled=on; b.classList.toggle("spin", on); }
+  if(t) t.textContent = label || (on ? "Refreshing" : "Refresh");
+}
+async function ownerRefresh(){
+  if(REFRESHING) return;
+  REFRESHING=true; REFRESH_SAW_RUN=false; REFRESH_WAIT=0;
+  setRefreshUI(true, "Starting");
+  try{
+    const r = await fetch(API+"/api/refresh",{method:"POST",credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json());
+    if(r && r.started===false && !/already/i.test(r.reason||"")){
+      toast("Could not start refresh"); setRefreshUI(false); REFRESHING=false; return;
+    }
+  }catch(e){ toast("Could not start refresh"); setRefreshUI(false); REFRESHING=false; return; }
+  setTimeout(pollRefresh, 800);
+}
+async function pollRefresh(){
+  let s;
+  try{ s = await fetch(API+"/api/refresh/status",{credentials:"same-origin"}).then(r=>r.json()); }
+  catch(e){ setRefreshUI(false); REFRESHING=false; try{ await loadJobs(); }catch(_){ } return; }
+  if(s.running){
+    REFRESH_SAW_RUN=true;
+    const pct=(typeof s.pct==="number")?Math.round(s.pct):null;
+    setRefreshUI(true, pct!=null ? (s.stage||"Working")+" "+pct+"%" : (s.stage||"Working"));
+    setTimeout(pollRefresh, 2000); return;
+  }
+  if(s.stage==="Error" || s.error){
+    toast("Refresh failed"); setRefreshUI(false); REFRESHING=false; return;
+  }
+  if(s.stage==="Done" || REFRESH_SAW_RUN){
+    setRefreshUI(false); REFRESHING=false;
+    await fetchSchedule(); await loadJobs();
+    toast("Jobs updated \u2713"); return;
+  }
+  // Not flipped to running yet (worker spinning up): wait briefly, then give up.
+  if(REFRESH_WAIT++ < 6){ setTimeout(pollRefresh, 1200); return; }
+  setRefreshUI(false); REFRESHING=false; try{ await loadJobs(); }catch(_){ }
+}
+
 fetchSchedule();
 loadMe();
 loadJobs();
+checkUnlocked();
 // Returned from Stripe checkout: confirm the upgrade landed, then clean the URL.
 if(/[?&]upgraded=1/.test(location.search)){
   try{ history.replaceState({}, "", location.pathname); }catch(e){}
