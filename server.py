@@ -1348,14 +1348,31 @@ RANK_DESC_CHARS = 1200        # chars of each posting handed to the AI to read
 RANK_ENRICH_CAP = 60          # max thin-desc jobs to backfill per rank (when enabled)
 _VALID_TIERS = ("strong", "possible", "skip")
 
+# Depth presets for the bring-your-own-AI rank. The pasted prompt has a roughly
+# fixed budget (jobs x chars-per-posting); each preset spends it differently:
+# 'broad' covers the most roles with a quick read of each, 'deep' reads fewer
+# postings in full. 'broad' equals the long-standing default, so it is a no-op
+# for anyone who does not change the setting. Both numbers stay clamped to the
+# export/desc maxima so a preset can never exceed the global ceilings.
+RANK_DEPTH_PRESETS = {
+    "broad":    (RANK_EXPORT_MAX, RANK_DESC_CHARS),   # 150 jobs, ~1200 chars each
+    "balanced": (80, 2400),                           # 80 jobs, ~2400 chars each
+    "deep":     (40, 4000),                           # 40 jobs, full posting each
+}
 
-def _rank_candidates(user_id, profile, limit):
+
+def _rank_candidates(user_id, profile, limit, desc_chars=RANK_DESC_CHARS):
     """The visitor's top-N jobs to hand their AI: highest free score first,
     skipping ones they have already had verified, each keyed by the SAME id the
     feed uses (db.job_hash) so the AI's reply maps straight back. Uses the cached
     scored base for ORDER, but pulls each job's FULL description from the pool (the
     feed cache trims descriptions for display) so the AI judges the complete posting,
-    not a snippet."""
+    not a snippet. `desc_chars` caps how much of each posting is included, so a
+    'deep' rank can hand over far more of each description than a 'broad' one."""
+    try:
+        desc_chars = max(200, min(int(desc_chars), 8000))
+    except Exception:
+        desc_chars = RANK_DESC_CHARS
     base = _scored_base(profile)
     if not base:
         return []
@@ -1386,7 +1403,7 @@ def _rank_candidates(user_id, profile, limit):
             "location": j["location"],
             "source": j.get("source", ""),
             "url": j.get("url", ""),
-            "description": (desc or "")[:RANK_DESC_CHARS],
+            "description": (desc or "")[:desc_chars],
         })
         if len(out) >= limit:
             break
@@ -1398,7 +1415,7 @@ def _rank_candidates(user_id, profile, limit):
             import enrich_desc
             enrich_desc.backfill(out, cap=RANK_ENRICH_CAP)
             for c in out:
-                c["description"] = (c.get("description", "") or "")[:RANK_DESC_CHARS]
+                c["description"] = (c.get("description", "") or "")[:desc_chars]
         except Exception:
             pass
     return out
@@ -1659,12 +1676,12 @@ def _sanitize_fit(r):
 
 
 @app.get("/api/rank/byo")
-def rank_export(request: Request, n: int = RANK_EXPORT_MAX):
+def rank_export(request: Request, n: int = RANK_EXPORT_MAX, depth: str = "broad"):
     """Return a ready-to-paste prompt (and the jobs it covers) so the current
     user can rank their top jobs with their own AI. A Pro feature (gated below);
     the ranking itself costs Jobrolu nothing because it runs on the user's own
-    AI. `n` lets the user pick how many to send (clamped to a sane range). Needs
-    a profile."""
+    AI. `depth` picks a breadth/detail preset (broad|balanced|deep); `n` is a
+    fallback for callers that pass a raw count. Needs a profile."""
     user_id = request.state.user_id
     gate = _pro_gate(request)
     if gate:
@@ -1672,11 +1689,16 @@ def rank_export(request: Request, n: int = RANK_EXPORT_MAX):
     profile = _user_profile(user_id)
     if not profile:
         return {"ok": False, "error": "Build a profile first, then you can rank your matches."}
-    try:
-        n = max(5, min(int(n), RANK_EXPORT_MAX))
-    except Exception:
-        n = RANK_EXPORT_MAX
-    jobs = _rank_candidates(user_id, profile, n)
+    preset = RANK_DEPTH_PRESETS.get((depth or "").strip().lower())
+    if preset:
+        n, desc_chars = preset
+    else:
+        try:
+            n = max(5, min(int(n), RANK_EXPORT_MAX))
+        except Exception:
+            n = RANK_EXPORT_MAX
+        desc_chars = RANK_DESC_CHARS
+    jobs = _rank_candidates(user_id, profile, n, desc_chars=desc_chars)
     if not jobs:
         return {"ok": False, "error": "No new jobs to rank right now. Your top matches are already verified."}
     return {"ok": True, "count": len(jobs),

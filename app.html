@@ -277,6 +277,12 @@
   .rankn-warn{font-family:var(--fu);font-size:11.5px;color:var(--mut);margin-top:9px;line-height:1.5}
   .ranksend{font-family:var(--fu);font-size:13px;color:var(--ink2)}
   .ranksend b{color:var(--green);font-weight:800}
+  /* depth selector: a small segmented control + a single explainer line */
+  .rankdepth{display:inline-flex;background:#0a0d12;border:1px solid var(--line2);border-radius:11px;padding:3px;margin:2px 0 8px}
+  .rankdepth button{font-family:var(--fu);font-size:12.5px;font-weight:700;color:var(--ink2);background:transparent;border:none;border-radius:8px;padding:7px 16px;cursor:pointer;transition:background .15s,color .15s}
+  .rankdepth button:hover{color:var(--ink)}
+  .rankdepth button.on{background:var(--greenbg);color:var(--green);box-shadow:inset 0 0 0 1px var(--greenln)}
+  .rankdepth-note{font-family:var(--fu);font-size:11.5px;color:var(--mut);line-height:1.5;margin:0 0 16px}
   .rankcopy{display:inline-flex;align-items:center;gap:6px;font-family:var(--fu);font-size:12.5px;font-weight:700;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:8px;padding:7px 13px;cursor:pointer;transition:background .15s,color .15s}
   .rankcopy:hover{background:var(--greenln)}
   .rankcopy.done{color:#08120c;background:var(--green);border-color:var(--green)}
@@ -333,6 +339,12 @@
     <button class="modal-x" onclick="closeRank()" aria-label="close">×</button>
     <h2>Rank my matches</h2>
     <p>Your scores are quick keyword estimates right now. Have your own ChatGPT or Claude read your top matches in full, for free, and your feed updates with real scores.</p>
+    <div class="rankdepth" id="rankDepth" role="group" aria-label="Ranking depth">
+      <button type="button" class="on" data-depth="broad" onclick="setRankDepth('broad')">Broad</button>
+      <button type="button" data-depth="balanced" onclick="setRankDepth('balanced')">Balanced</button>
+      <button type="button" data-depth="deep" onclick="setRankDepth('deep')">Deep</button>
+    </div>
+    <div class="rankdepth-note" id="rankDepthNote"></div>
     <div class="rankn">
       <div class="ranksend" id="rankSend">Sending your top matches&hellip;</div>
       <div class="rankn-warn">If your AI's reply gets cut off, just paste whatever it gave back and save. Anything it missed stays one click away.</div>
@@ -547,30 +559,60 @@ function tickScan(){
 }
 
 const RANK_CAP = 150;
+// Depth presets MUST mirror the server's RANK_DEPTH_PRESETS job counts so the
+// "sending N" line matches what the server returns. 'note' is the one-line
+// explainer shown under the selector.
+let RANK_DEPTH = "broad";
+let RANK_FETCH_SEQ = 0;
+const RANK_DEPTHS = {
+  broad:    {jobs:150, note:"Up to 150 roles, a quick read of each. Widest net."},
+  balanced: {jobs:80,  note:"Up to 80 roles, a fuller read of each."},
+  deep:     {jobs:40,  note:"Up to 40 roles, each posting read in full. Most precise."},
+};
+function syncRankDepthUI(){
+  document.querySelectorAll("#rankDepth button").forEach(b=>{
+    b.classList.toggle("on", b.getAttribute("data-depth")===RANK_DEPTH);
+  });
+  const note=document.getElementById("rankDepthNote");
+  if(note) note.textContent=(RANK_DEPTHS[RANK_DEPTH]||RANK_DEPTHS.broad).note;
+}
+function setRankDepth(mode){
+  if(!RANK_DEPTHS[mode] || mode===RANK_DEPTH) return;   // unknown or no change
+  RANK_DEPTH=mode;
+  syncRankDepthUI();
+  updateRankInfo();
+  loadRankPrompt();
+}
 function openRank(){
   if(!IS_PRO){ openUpgrade(); return; }
   document.getElementById("rankBg").classList.add("show");
   document.getElementById("rankMsg").textContent = "";
   document.getElementById("rankIn").value = "";
+  syncRankDepthUI();
   updateRankInfo();
   loadRankPrompt();
 }
 function rankUnverified(){ return JOBS.filter(j=>!verified(j)).length; }
 function updateRankInfo(){
   const el=document.getElementById("rankSend"); if(!el) return;
+  const cap=(RANK_DEPTHS[RANK_DEPTH]||RANK_DEPTHS.broad).jobs;
   const un=rankUnverified();
-  const n=Math.min(un, RANK_CAP);
-  el.innerHTML = un<=RANK_CAP
+  const n=Math.min(un, cap);
+  el.innerHTML = un<=cap
     ? ("Sending all <b>"+un+"</b> of your roles still on estimates.")
     : ("Sending your top <b>"+n+"</b> of "+un+" on estimates. Save, then click again for the rest.");
 }
 function loadRankPrompt(){
   const pre = document.getElementById("rankPrompt");
-  pre.value = "Loading your top matches...";
-  fetch(API+"/api/rank/byo?n="+RANK_CAP,{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
-    if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.value = d.prompt; }
-    else{ RANK_PROMPT=""; pre.value = ""; document.getElementById("rankMsg").className="modal-msg"; document.getElementById("rankMsg").textContent = d.error || "Couldn't build the prompt."; }
-  }).catch(()=>{ RANK_PROMPT=""; pre.value=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
+  const seq = ++RANK_FETCH_SEQ;          // only the latest request may update the box
+  RANK_PROMPT = "";
+  pre.value = "Building your prompt\u2026";
+  fetch(API+"/api/rank/byo?depth="+encodeURIComponent(RANK_DEPTH),{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+    if(seq!==RANK_FETCH_SEQ) return;
+    const msg=document.getElementById("rankMsg");
+    if(d.ok && d.prompt){ RANK_PROMPT = d.prompt; pre.value = d.prompt; msg.className="modal-msg"; msg.textContent=""; }
+    else{ RANK_PROMPT=""; pre.value = ""; msg.className="modal-msg"; msg.textContent = d.error || "Couldn't build the prompt."; }
+  }).catch(()=>{ if(seq!==RANK_FETCH_SEQ) return; RANK_PROMPT=""; pre.value=""; document.getElementById("rankMsg").textContent = "Can't reach the server."; });
 }
 function closeRank(){ document.getElementById("rankBg").classList.remove("show"); }
 function copyRankPrompt(){
