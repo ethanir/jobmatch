@@ -160,7 +160,7 @@
 <main class="hero">
   <div class="tag rv d1"><span class="dot"></span>Built for every professional field, at every level</div>
   <h1 class="rv d2">The job feed that<br>actually <span class="hl">reads</span> the job.</h1>
-  <p class="sub rv d3">Every open role that fits, read in full by AI, ranked down to the few that truly match your skills and experience.</p>
+  <p class="sub rv d3">Every open role from thousands of companies' own hiring pages across the web, read in full by AI and ranked down to the few that truly fit your skills and experience.</p>
   <div class="ctas rv d4" id="heroCtas">
     <a class="btn p" href="/signin?new=1">Get started free →</a>
     <a class="btn g" href="/signin">Sign in</a>
@@ -372,7 +372,7 @@ function lsignout(e){ if(e) e.preventDefault(); fetch("/api/auth/logout",{method
       box.style.display="inline-flex";
       animateTo(d.roles);
       if(subEl) subEl.textContent = d.companies
-        ? ("across "+fmt(d.companies)+" companies · updated daily")
+        ? ("across "+fmt(d.companies)+" companies and 9 platforms · updated daily")
         : "updated daily";
       var fco=document.getElementById("funnelCos");
       if(fco && d.companies) fco.textContent=fmt(d.companies);

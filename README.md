@@ -57,7 +57,7 @@ The whole design exists to keep cost near zero while still using AI where it mat
         |
         v
   SOURCING                    7 ATS APIs + Adzuna + USAJOBS + curated lists, self-growing
-        |                     registry. 9 job systems, 100,000+ roles, 7,000+ companies.  $0
+        |                     registry. 9 job systems, 126,000+ roles, 7,000+ companies.  $0
         v
   PREFILTER                   free, rule-based. Keeps on-target titles (tech by default,
         |                     professional fields in multi-field mode); scoring narrows.   $0
@@ -78,6 +78,9 @@ The whole design exists to keep cost near zero while still using AI where it mat
         v
   FEED                        app.html: sign in, then browse YOUR ranked feed,
                               filter, search, verify with your own AI, copy the draft.
+                              First load is two-phase: your field-relevant matches
+                              score and show in seconds, then the rest of the pool
+                              fills in from a background thread (identical scores).
 ```
 
 ---
@@ -91,6 +94,8 @@ There are two scorers, and they are NOT on the same scale:
 1. **The free heuristic scorer** (`score.py`) reads keywords, the job title, seniority words, and location. It is fast and free, and it runs on *every* job. It is a rough guess. It can give a high number to a job just because the title looks right ("Graduate Software Engineer" scores high on the new-grad and SWE-title signals even if zero of your skills appear in the text).
 
 2. **The AI fit-ranker** (`rank.py`) reads the *full job description* against your profile and produces a careful, considered score with real reasons, gaps, and disqualifiers. Only the top N jobs (default 100) ever reach this step, because it is the only paid step.
+
+Both scorers are field-agnostic by design: the same engine ranks a nurse, a teacher, an accountant, a marketer, or a backend engineer against their own background, with no per-field rules hand-tuned to favor one over another. This is checked by a cross-field test that runs a dozen real resumes from different fields against a tagged job pool and confirms, for every field, that the person's own roles rise to the top while roles from other fields fall away.
 
 <p align="center">
   <img src="assets/match.png" alt="An AI-verified match with reasons and gaps" width="78%">

@@ -731,7 +731,14 @@ function saveRank(){
 
 function render(){
   const c = counts();
-  const tiers = [["strong","Strong"],["possible","Possible"],["skip","Skip"],["all","All"],["recent","Recent"]];
+  // "Recent" only appears once it actually means something: a subset of the feed
+  // that is newer than the rest. In the first days of tracking, every role still
+  // looks new (recent == all), so a "Recent 2000" next to "All 2000" tells the
+  // user nothing; hide the chip until the pool has enough history to differentiate.
+  const showRecent = c.recent > 0 && c.recent < c.all;
+  if(FILTER === "recent" && !showRecent) FILTER = "all";
+  const tiers = [["strong","Strong"],["possible","Possible"],["skip","Skip"],["all","All"]];
+  if(showRecent) tiers.push(["recent","Recent"]);
   document.getElementById("filters").innerHTML = tiers.map(([k,label])=>
     `<button class="pill ${FILTER===k?'active':''}" onclick="setFilter('${k}')">${label}<b>${c[k]||0}</b></button>`).join("");
   const searched = searchedJobs();
