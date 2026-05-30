@@ -25,6 +25,7 @@ Design choices that make the match actually good:
 import os
 import re
 import time
+from functools import lru_cache
 
 # Mirrors prefilter.MULTIFIELD. ON by default. Enables the field-agnostic same-discipline
 # title bonus below, so a role in the user's OWN non-tech field scores well even when the
@@ -64,10 +65,19 @@ _GENERIC_TITLE = {
 }
 
 
+@lru_cache(maxsize=4096)
+def _skill_pat(skill):
+    """Compile the whole-token matcher for a skill ONCE per distinct skill. The
+    scoring loop runs this for every skill against every job in the pool, so
+    rebuilding and re-escaping the pattern each call was the dominant cost;
+    caching the compiled pattern keeps the matches identical and makes a cold
+    rank of a large pool dramatically faster."""
+    return re.compile(r"(?<![a-z0-9+#])" + re.escape(skill) + r"(?![a-z0-9+#])")
+
+
 def _word_in(skill, blob):
     """True only if skill appears as a whole token (so 'c' won't match 'clearance')."""
-    return re.search(r"(?<![a-z0-9+#])" + re.escape(skill) + r"(?![a-z0-9+#])",
-                     blob) is not None
+    return _skill_pat(skill).search(blob) is not None
 
 
 def _flat_skills(profile):
@@ -279,11 +289,17 @@ _DISC_NAMES = {
 }
 
 
+@lru_cache(maxsize=8192)
 def role_disciplines(text):
     """Classify a title (or a user's target titles) into zero or more disciplines.
     Empty when nothing matches, so an unrecognized title stays neutral and never
     triggers a penalty. An ML/AI *engineer* counts as BOTH ml_ds and eng, so it
-    fits software and data candidates alike."""
+    fits software and data candidates alike.
+
+    Cached: this runs ~14 regexes, and a pool has many duplicate titles (and the
+    same title is checked more than once per job), so memoizing by text turns a
+    cold rank of a large pool from seconds into a fraction of that. Returns a
+    frozenset so the shared cached value can never be mutated by a caller."""
     t = (text or "").lower()
     d = set()
     if _DISC_ENG_RX.search(t):
@@ -316,7 +332,7 @@ def role_disciplines(text):
         d.add("healthcare")
     if _DISC_EDUCATION_RX.search(t):
         d.add("education")
-    return d
+    return frozenset(d)
 
 
 def _profile_disciplines(target_titles, user_is_swe):
@@ -333,15 +349,22 @@ def _profile_disciplines(target_titles, user_is_swe):
 
 def heuristic_score(job, skills, titles, locs, desired="entry",
                     remote_ok=True, onsite_ok=True, user_years=0,
-                    user_is_swe=True, user_disc=None):
+                    user_is_swe=True, user_disc=None, desc_scan=True):
     """Return (score:int, matched:list, why:list[str], flags:list[str]).
 
     Pure function, no side effects. `why` are positive reasons (shown under "Why you
     fit"); `flags` are concerns (shown under "Worth knowing"). The reason strings are
-    the transparency layer: the score is just their weights summed."""
+    the transparency layer: the score is just their weights summed.
+
+    desc_scan=False skips the parts that read the (long) job description: the skill
+    overlap and the clearance/years/PhD checks. rank_free uses it for roles with no
+    relevance signal (no matching title, field, or skill). For those the skill bonus
+    is already zero and the only other description effects are penalties, so a role
+    skipped this way can only stay where it is or rank lower, never higher; the
+    ranked top is identical while we avoid the costly scan on most of the pool."""
     title = job.get("title", "") or ""
     desc = (job.get("description", "") or "")
-    blob = (title + " " + desc)[:12000].lower()
+    blob = (title + " " + desc)[:12000].lower() if desc_scan else ""
     why, flags = [], []
     score = 0
 
@@ -389,12 +412,14 @@ def heuristic_score(job, skills, titles, locs, desired="entry",
         flags.append(concern)
 
     # --- skill overlap (whole-word; saturates so it can't dominate) --------
-    matched = [s for s in skills if s and _word_in(s, blob)]
-    n = len(matched)
-    score += min(n, 3) * 6 + max(0, min(n - 3, 5)) * 2     # up to 18 + 10 = 28
-    if n:
-        shown = ", ".join(matched[:5])
-        why.append(f"{n} of your skills appear: {shown}")
+    matched = []
+    if desc_scan:
+        matched = [s for s in skills if s and _word_in(s, blob)]
+        n = len(matched)
+        score += min(n, 3) * 6 + max(0, min(n - 3, 5)) * 2     # up to 18 + 10 = 28
+        if n:
+            shown = ", ".join(matched[:5])
+            why.append(f"{n} of your skills appear: {shown}")
 
     # --- location fit (remote / preferred city vs the user's preferences) --
     loc = (job.get("location", "") or "").lower()
@@ -443,26 +468,27 @@ def heuristic_score(job, skills, titles, locs, desired="entry",
         score -= 8
         flags.append("No description in this feed; open the posting to confirm details")
 
-    # --- hard-ish disqualifiers --------------------------------------------
-    if CLEARANCE_RX.search(blob):
-        score -= 55
-        flags.append("Security clearance required, a likely gap")
-    ym = YEARS_RX.search(blob)
-    if ym:
-        try:
-            yrs_req = int(ym.group(1))
-            gap = yrs_req - (user_years or 0)
-            if gap >= 5:
-                score -= 40
-                flags.append(f"May need {yrs_req}+ years of experience")
-            elif gap >= 3:
-                score -= 22
-                flags.append(f"May need {yrs_req}+ years of experience")
-        except ValueError:
-            pass
-    if PHD_RX.search(blob):
-        score -= 16
-        flags.append("PhD required, a likely gap")
+    # --- hard-ish disqualifiers (description scan) -------------------------
+    if desc_scan:
+        if CLEARANCE_RX.search(blob):
+            score -= 55
+            flags.append("Security clearance required, a likely gap")
+        ym = YEARS_RX.search(blob)
+        if ym:
+            try:
+                yrs_req = int(ym.group(1))
+                gap = yrs_req - (user_years or 0)
+                if gap >= 5:
+                    score -= 40
+                    flags.append(f"May need {yrs_req}+ years of experience")
+                elif gap >= 3:
+                    score -= 22
+                    flags.append(f"May need {yrs_req}+ years of experience")
+            except ValueError:
+                pass
+        if PHD_RX.search(blob):
+            score -= 16
+            flags.append("PhD required, a likely gap")
 
     return score, matched, why, flags
 
@@ -485,11 +511,33 @@ def rank_free(jobs, profile):
     except (TypeError, ValueError):
         user_years = 0
 
+    # Speed: the full scan reads every job's (long) description once per skill,
+    # which dominates the cost over a large pool, yet most jobs are irrelevant to a
+    # given user. So we do the expensive description scan only for jobs with a
+    # relevance signal: a matching title, the user's own field, or any of their
+    # skills appearing in the posting. The skill test below is exactly equivalent to
+    # "would heuristic_score match any skill" (same whole-word boundaries), so a job
+    # we skip has a zero skill bonus regardless and can only lose points from the
+    # description checks. The ranked top is therefore identical, on far less work.
+    skill_rx = None
+    if skills:
+        alts = "|".join(re.escape(s) for s in skills if s)
+        if alts:
+            skill_rx = re.compile(r"(?<![a-z0-9+#])(" + alts + r")(?![a-z0-9+#])")
+
     for j in jobs:
+        title = j.get("title", "") or ""
+        tpts, _thit = _title_fit(title, titles)
+        relevant = (tpts > 0
+                    or (user_is_swe and bool(SWE_RX.search(title)))
+                    or bool(user_disc and (role_disciplines(title) & user_disc)))
+        if not relevant and skill_rx is not None:
+            blob = (title + " " + (j.get("description", "") or ""))[:12000].lower()
+            relevant = skill_rx.search(blob) is not None
         s, m, why, flags = heuristic_score(
             j, skills, titles, locs, desired=desired, remote_ok=remote_ok,
             onsite_ok=onsite_ok, user_years=user_years, user_is_swe=user_is_swe,
-            user_disc=user_disc)
+            user_disc=user_disc, desc_scan=relevant)
         j["_score"] = s
         j["_matched"] = m
         j["_why"] = why
