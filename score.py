@@ -237,7 +237,8 @@ _DISC_MLDS_RX = re.compile(
     r"data scientist|data science|applied scientist|research scientist|"
     r"\bnlp\b|computer vision|quantitative (?:research|analyst|developer)", re.I)
 _DISC_ANALYTICS_RX = re.compile(
-    r"data analyst|data analytics|business intelligence|\bbi\b analyst|reporting analyst", re.I)
+    r"data analyst|data analytics|business intelligence|\bbi\b analyst|reporting analyst|"
+    r"analytics (?:associate|manager|specialist|lead)", re.I)
 _DISC_PRODUCT_RX = re.compile(
     r"product manager|product management|technical program manager|\btpm\b|"
     r"program manager|product owner", re.I)
@@ -254,11 +255,12 @@ _DISC_FINANCE_RX = re.compile(
     r"\baccountant\b|accounting|\bauditor\b|financial analyst|finance manager|\bcontroller\b|"
     r"\bcpa\b|\bcfa\b|investment (?:banking|analyst|associate|banker)|equity research|"
     r"financial advisor|wealth (?:manager|advisor)|\bfp&a\b|treasury analyst|tax (?:associate|manager|accountant)|"
-    r"bookkeep|\bactuary\b|underwriter|loan officer|credit analyst|portfolio manager|financial planning", re.I)
+    r"bookkeep|\bactuary\b|underwriter|loan officer|credit analyst|portfolio manager|financial planning|"
+    r"accounts payable|accounts receivable", re.I)
 _DISC_MARKETING_RX = re.compile(
     r"\bmarketing\b|brand (?:manager|strategist)|content (?:marketing|strategist)|\bseo\b|\bsem\b|"
     r"growth marketing|social media (?:manager|specialist|strategist)|communications (?:manager|specialist)|"
-    r"public relations|demand generation|\bcopywriter\b|digital marketing|product marketing", re.I)
+    r"public relations|demand generation|\bcopywriter\b|digital marketing|product marketing|\bmarketer\b", re.I)
 _DISC_SALES_RX = re.compile(
     r"account executive|sales (?:representative|manager|associate|director|development|consultant)|"
     r"business development|\bbdr\b|\bsdr\b|account manager|inside sales|enterprise sales|partnerships manager", re.I)
@@ -285,8 +287,9 @@ _DISC_EDUCATION_RX = re.compile(
 # that still matches nothing stays unclassified and is never penalized. ---
 _DISC_SUPPORT_RX = re.compile(
     r"customer (?:service|support|success|experience)|client (?:service|services|success)|"
-    r"\bhelp desk\b|call center|contact center|support (?:specialist|representative|associate|agent)|"
-    r"member services|patient access", re.I)
+    r"\bhelp desk\b|call center|contact center|"
+    r"support (?:specialist|representative|associate|agent|engineer|analyst|manager)|"
+    r"support (?:team )?lead|member services|patient access", re.I)
 _DISC_ADMIN_RX = re.compile(
     r"administrative (?:assistant|coordinator|specialist|aide)|executive assistant|"
     r"office (?:manager|coordinator|administrator|assistant)|\breceptionist\b|front desk|"
@@ -299,7 +302,8 @@ _DISC_ENGOTHER_RX = re.compile(
     r"mechanical engineer|civil engineer|chemical engineer|industrial engineer|"
     r"manufacturing engineer|process engineer|quality engineer|aerospace engineer|"
     r"structural engineer|environmental engineer|biomedical engineer|materials engineer|"
-    r"petroleum engineer", re.I)
+    r"petroleum engineer|mechanical design engineer|\bdesign engineer\b|"
+    r"product (?:design|development) engineer", re.I)
 
 _DISC_NAMES = {
     "analytics": "data analytics", "design": "design", "eng": "software engineering",
