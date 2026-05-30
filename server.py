@@ -778,6 +778,50 @@ def coverage():
     }
 
 
+_STATS_CACHE = {"data": None, "at": 0.0}
+_STATS_LOCK = threading.Lock()
+_STATS_TTL = 30.0          # seconds; the underlying numbers change at most daily
+
+
+@app.get("/api/stats")
+def stats():
+    """Tiny public counters for the live tracker on the landing page: total roles
+    tracked and companies in the registry. Deliberately cheap, it uses pool_meta (a
+    stored count, not a scan of the whole pool) plus a short cache, so it stays fast
+    even when hit on every page load and refreshed periodically by the counter."""
+    now = time.time()
+    with _STATS_LOCK:
+        c = _STATS_CACHE
+        if c["data"] is not None and (now - c["at"]) < _STATS_TTL:
+            return c["data"]
+    roles = 0
+    try:
+        if db.has_db():
+            with db.get_conn() as conn:
+                meta = db.pool_meta(conn) if conn else None
+                if meta:
+                    roles = int(meta[0] or 0)
+    except Exception:
+        roles = 0
+    if not roles:                      # file-backed fallback (no DB configured)
+        try:
+            roles = len(_pool_list())
+        except Exception:
+            roles = 0
+    companies = 0
+    try:
+        import registry
+        reg = registry.load()
+        companies = len(reg) if isinstance(reg, (dict, list)) else 0
+    except Exception:
+        companies = 0
+    data = {"roles": roles, "companies": companies, "updated": int(now)}
+    with _STATS_LOCK:
+        _STATS_CACHE["data"] = data
+        _STATS_CACHE["at"] = now
+    return data
+
+
 @app.get("/api/jobs")
 def list_jobs(request: Request, tier: str = "all"):
     user_id = request.state.user_id
