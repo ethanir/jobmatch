@@ -17,6 +17,11 @@ import os
 
 from prompts import RESUME_TO_PROFILE, PROFILE_SCHEMA
 
+# Which model parses resumes. Defaults to the model that has handled this well so
+# far; set the RESUME_MODEL env var to point it elsewhere (e.g. a cheaper model)
+# WITHOUT a code change. Verify extraction quality before switching it.
+RESUME_MODEL = os.environ.get("RESUME_MODEL", "claude-sonnet-4-6")
+
 
 def extract_text(path):
     """Return plain text from a resume file. Supports .pdf, .docx, .txt/.md."""
@@ -68,7 +73,7 @@ def parse_resume(resume_text, client=None):
 
     prompt = RESUME_TO_PROFILE.format(schema=PROFILE_SCHEMA, resume_text=resume_text[:12000])
     msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1500,
+        model=RESUME_MODEL, max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
     text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
@@ -99,7 +104,7 @@ def parse_resume_pdf(path, client=None):
             data = base64.standard_b64encode(f.read()).decode()
         prompt = RESUME_TO_PROFILE.format(schema=PROFILE_SCHEMA, resume_text="(read the attached PDF)")
         msg = client.messages.create(
-            model="claude-sonnet-4-6", max_tokens=1500,
+            model=RESUME_MODEL, max_tokens=1500,
             messages=[{"role": "user", "content": [
                 {"type": "document",
                  "source": {"type": "base64", "media_type": "application/pdf", "data": data}},

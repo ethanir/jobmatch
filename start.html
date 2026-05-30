@@ -549,8 +549,8 @@ function showBuild(forEdit){
     var fp=document.getElementById("formPanel"); if(fp) fp.scrollIntoView({behavior:"smooth",block:"start"});
   }
 }
-// Plan state (free vs Pro). Resume upload is a Pro feature; the manual form and
-// the your-own-AI option are free, so only the resume card locks for free users.
+// Plan state (free vs Pro). Resume upload, the manual form, and the your-own-AI
+// option are all free now; Pro unlocks AI ranking, which the plan pill reflects.
 let IS_PRO=false, PLAN_NAME="Pro", PRICE="";
 const LOCK_SVG='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
 function renderPlan(){
@@ -566,19 +566,13 @@ function renderPlan(){
   const unlock=document.getElementById("resumeUnlock");
   const badge=document.getElementById("resumeBadge");
   const file=document.getElementById("resumeFile");
-  if(IS_PRO){
-    card.classList.remove("locked");
-    if(label) label.style.display="";
-    if(unlock) unlock.style.display="none";
-    if(file) file.disabled=false;
-    if(badge) badge.textContent="Fastest";
-  }else{
-    card.classList.add("locked");
-    if(label) label.style.display="none";
-    if(file) file.disabled=true;
-    if(unlock){ unlock.style.display=""; unlock.innerHTML = LOCK_SVG + (PRICE ? ("Unlock for "+esc(PRICE)) : "Unlock Pro"); }
-    if(badge) badge.innerHTML = LOCK_SVG + "Pro";
-  }
+  // Resume upload is free for everyone now, so it is never locked. (Pro still
+  // unlocks AI ranking; the plan pill above reflects that.)
+  card.classList.remove("locked");
+  if(label) label.style.display="";
+  if(unlock) unlock.style.display="none";
+  if(file) file.disabled=false;
+  if(badge) badge.textContent="Fastest";
 }
 function openUpgrade(){
   if(IS_PRO) return;

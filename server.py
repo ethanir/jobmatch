@@ -221,6 +221,33 @@ def _pro_gate(request):
                       + PRO_PRICE_LABEL + ".")}
 
 
+# Best-effort per-user rate limit for the now-free resume parser. In-memory and
+# per-process: it resets on restart and is not shared across workers, which is
+# fine, because its only job is to stop one client scripting a flood of parses
+# (each costs a fraction of a cent), not to be a hard security control.
+_ONBOARD_HITS = {}                                   # uid -> [unix timestamps]
+_ONBOARD_LOCK = threading.Lock()
+_ONBOARD_MAX = int(os.environ.get("ONBOARD_DAILY_LIMIT", "10") or 0)
+_ONBOARD_WINDOW = 24 * 3600                          # rolling window, seconds
+
+
+def _onboard_rate_limited(uid):
+    """True if uid has used up its resume-parse allowance in the rolling window
+    (and the request should be refused). Records the attempt when it allows it.
+    A missing uid or a non-positive limit disables the check entirely."""
+    if not uid or _ONBOARD_MAX <= 0:
+        return False
+    now = time.time()
+    with _ONBOARD_LOCK:
+        hits = [t for t in _ONBOARD_HITS.get(uid, []) if now - t < _ONBOARD_WINDOW]
+        if len(hits) >= _ONBOARD_MAX:
+            _ONBOARD_HITS[uid] = hits
+            return True
+        hits.append(now)
+        _ONBOARD_HITS[uid] = hits
+        return False
+
+
 def _verify_stripe_event(payload: bytes, sig_header: str, secret: str, tolerance: int = _WEBHOOK_TOLERANCE):
     """Verify a Stripe webhook signature WITHOUT the stripe library, following the
     documented scheme: signed_payload = '<t>.' + raw_body, HMAC-SHA256 keyed on the
@@ -1244,14 +1271,13 @@ async def save_profile(request: Request):
 
 @app.post("/api/onboard")
 async def onboard_resume(request: Request, file: UploadFile = File(...)):
-    """Accept a resume upload and parse it into a profile for review. A Pro
-    feature (gated below): resume parsing is one of the paid unlocks. The parsed
-    result is returned for review and is not committed to the feed here."""
+    """Accept a resume upload and parse it into a profile for review. This is a
+    free feature: the parse is a single small, cheap model call. It still requires
+    a signed-in account (when a database is configured) and is rate-limited per
+    user, best effort, to prevent abuse. The parsed result is returned for review
+    and is NOT committed to the feed here; that happens on POST /api/profile."""
     if db.has_db():
         _require_auth(request)
-    gate = _pro_gate(request)
-    if gate:
-        return gate
     import tempfile
     suffix = os.path.splitext(file.filename or "")[1].lower() or ".txt"
     if suffix not in (".pdf", ".docx", ".txt", ".md"):
@@ -1260,6 +1286,12 @@ async def onboard_resume(request: Request, file: UploadFile = File(...)):
         import onboard as onboard_mod
     except Exception as e:
         return {"ok": False, "error": f"Onboarding unavailable: {e}"}
+    # Free, but rate-limited per user (best effort) so nobody can script a flood
+    # of parses. Only real attempts count (we are past the file-type check), and
+    # only when a database is configured; local dev is never limited.
+    if db.has_db() and _onboard_rate_limited(getattr(request.state, "user_id", None)):
+        return {"ok": False, "error": ("You've reached today's resume-upload limit. "
+                "Fill in your profile manually below, or try again tomorrow.")}
     try:
         contents = await file.read()
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
