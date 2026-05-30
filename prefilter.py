@@ -8,12 +8,11 @@ The LLM (rank.py) does the nuanced scoring on whatever survives here.
 import os
 import re
 
-# Multi-field switch. OFF by default, which keeps the shared pool tech-only exactly as
-# before. Set MULTIFIELD=on in the environment to ALSO admit professional, resume-driven
-# roles in other fields (finance, marketing, sales, HR, healthcare, legal, education, ops,
-# and more) and drop only clearly hourly/manual roles where a resume plus an AI fit-read
-# adds little. Nothing about the tech pipeline changes while this is off.
-MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
+# Multi-field switch. ON by default: the shared pool covers tech AND professional,
+# resume-driven roles in other fields (finance, marketing, sales, HR, healthcare, legal,
+# education, ops, and more), dropping only clearly hourly/manual roles where a resume plus
+# an AI fit-read adds little. Set MULTIFIELD=off in the environment to revert to tech-only.
+MULTIFIELD = os.environ.get("MULTIFIELD", "on").strip().lower() in ("1", "true", "on", "yes")
 
 # Broad "is this a software / CS / tech role?" allowlist, used to build the SHARED
 # pool at full breadth. It is intentionally generous (software, data, ML, security,

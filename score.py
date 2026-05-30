@@ -26,10 +26,10 @@ import os
 import re
 import time
 
-# Mirrors prefilter.MULTIFIELD. Used only to enable the field-agnostic same-discipline
+# Mirrors prefilter.MULTIFIELD. ON by default. Enables the field-agnostic same-discipline
 # title bonus below, so a role in the user's OWN non-tech field scores well even when the
-# exact title words differ. With this off (default), scoring is identical to before.
-MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
+# exact title words differ. Set MULTIFIELD=off to revert to the prior tech-only scoring.
+MULTIFIELD = os.environ.get("MULTIFIELD", "on").strip().lower() in ("1", "true", "on", "yes")
 
 # --- title / level signals -------------------------------------------------
 SENIOR_RX = re.compile(

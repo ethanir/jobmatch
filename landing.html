@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Jobrolu · AI job matching for engineers</title>
+<title>Jobrolu · AI job matching for every professional field</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzBkMTAxNSIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjgiIGZpbGw9IiM0ZmUzOWIiLz48L3N2Zz4="/>
 <link rel="icon" type="image/png" sizes="180x180" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAAD4UlEQVR4nO3dwU3jcBBG8X9We0XiQhk0QVkUQFk0QUHsYRXJRHFimySe78373ZHimadx4MLh6fnle0gQf/b+ANItGbRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFopBC8WghWLQQjFooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFsrfvT8AydvXx+af/Xx9v+En6evgv3Xb5jfxLmXk6xn0Co+IeI5xL2PQV+wZ8RzjnmfQZ1SMeI5x/2TQE0khnzLs/wx6ZId8qnvY7f8OTYp5DN7zrNX2QndYfMdr3fJCd4h5jD7POdXqQndc8FGXa93mQneOeYw+z98i6C7LvKbDHPBBd1jiGvR5YL9D0xd3C8Tv1cgLbczLEOeEC5q4pHuizQsXtHpDBU27No9CmhsmaNJS9kCZHyJoyjL2RphjfNCEJVSSPs/4oKWp6KDTr0lVyXONDTp56AlS5xsbtHROZNCp1yNN4pzjgk4ccrK0eccFLV0SFXTataBImntU0NI1MUEnXQmilPnHBC0tYdBCiQg65XVHl7CHiKClpQxaKOWDTnjNdVJ9H+WDltYwaKGUDrr6662rynspHbS0lkELxaCFYtBCKRt05V88VHc/ZYOWtjBooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxZK2aA/X9/3/gi6oOp+ygYtbWHQQjFooRi0UEoHXfUXj+4q76V00NJaBi2U8kFXfr11VH0f5YOW1jBooUQEXf0110XCHiKClpYyaKHEBJ3wuiNLmX9M0NISUUGnXAmapLlHBS1dExd00rUgSJt3XNBj5A05VeKcI4OW5sQGnXg9kqTONzboMXKHXl3yXKODlk7FB518TSpKn2d80GPkL6EKwhwRQY/BWMaeKPPDBD0GZymPRpobKmgJFzTp2jwCbV64oMfgLeleiHM6PD2/fO/9Ie7p7etj749QDjHkI+SFniIvbwv6PPBBj8Ff4lId5tAi6DF6LPOSLs+P/w59Tqfv1V1CPmpzoae6LLnLc061vNBTxGvdMeSjlhd6irZ82vOs1f5CTyVf6+4hHxn0GUlhG/JPBn1FxbiNeJ5Br7Bn3Ea8jEFv9Ii4jXg9g76h30RuvLdh0EJp/3dosRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFopBC8WghWLQQjFooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi2Uf5dI0CuaTDvRAAAAAElFTkSuQmCC"/>
 <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAAD4UlEQVR4nO3dwU3jcBBG8X9We0XiQhk0QVkUQFk0QUHsYRXJRHFimySe78373ZHimadx4MLh6fnle0gQf/b+ANItGbRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFopBC8WghWLQQjFooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFsrfvT8AydvXx+af/Xx9v+En6evgv3Xb5jfxLmXk6xn0Co+IeI5xL2PQV+wZ8RzjnmfQZ1SMeI5x/2TQE0khnzLs/wx6ZId8qnvY7f8OTYp5DN7zrNX2QndYfMdr3fJCd4h5jD7POdXqQndc8FGXa93mQneOeYw+z98i6C7LvKbDHPBBd1jiGvR5YL9D0xd3C8Tv1cgLbczLEOeEC5q4pHuizQsXtHpDBU27No9CmhsmaNJS9kCZHyJoyjL2RphjfNCEJVSSPs/4oKWp6KDTr0lVyXONDTp56AlS5xsbtHROZNCp1yNN4pzjgk4ccrK0eccFLV0SFXTataBImntU0NI1MUEnXQmilPnHBC0tYdBCiQg65XVHl7CHiKClpQxaKOWDTnjNdVJ9H+WDltYwaKGUDrr6662rynspHbS0lkELxaCFYtBCKRt05V88VHc/ZYOWtjBooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxZK2aA/X9/3/gi6oOp+ygYtbWHQQjFooRi0UEoHXfUXj+4q76V00NJaBi2U8kFXfr11VH0f5YOW1jBooUQEXf0110XCHiKClpYyaKHEBJ3wuiNLmX9M0NISUUGnXAmapLlHBS1dExd00rUgSJt3XNBj5A05VeKcI4OW5sQGnXg9kqTONzboMXKHXl3yXKODlk7FB518TSpKn2d80GPkL6EKwhwRQY/BWMaeKPPDBD0GZymPRpobKmgJFzTp2jwCbV64oMfgLeleiHM6PD2/fO/9Ie7p7etj749QDjHkI+SFniIvbwv6PPBBj8Ff4lId5tAi6DF6LPOSLs+P/w59Tqfv1V1CPmpzoae6LLnLc061vNBTxGvdMeSjlhd6irZ82vOs1f5CTyVf6+4hHxn0GUlhG/JPBn1FxbiNeJ5Br7Bn3Ea8jEFv9Ii4jXg9g76h30RuvLdh0EJp/3dosRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi0UgxaKQQvFoIVi0EIxaKEYtFAMWigGLRSDFopBC8WghWLQQjFooRi0UAxaKAYtFIMWikELxaCFYtBCMWihGLRQDFooBi2Uf5dI0CuaTDvRAAAAAElFTkSuQmCC"/>
-<meta name="description" content="Built for engineers, from new grad to senior. Scans every open engineering role (backend, frontend, infra, data, ML, security) from 500+ companies, reads each full description with AI, and ranks the ones that actually fit your stack."/>
+<meta name="description" content="For anyone whose job search runs on a resume, in tech and across professional fields. Scans open roles from 500+ companies and free job sources, reads each full description with AI, and ranks the ones that actually fit your skills and experience."/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -147,9 +147,9 @@
 </nav>
 
 <main class="hero">
-  <div class="tag rv d1"><span class="dot"></span>Built for engineers, at every level</div>
+  <div class="tag rv d1"><span class="dot"></span>Built for every professional field, at every level</div>
   <h1 class="rv d2">The job feed that<br>actually <span class="hl">reads</span> the job.</h1>
-  <p class="sub rv d3">Every open <b>engineering</b> role, read in full by AI, ranked down to the few that truly fit your stack.</p>
+  <p class="sub rv d3">Every open role that fits, read in full by AI, ranked down to the few that truly match your skills and experience.</p>
   <div class="ctas rv d4" id="heroCtas">
     <a class="btn p" href="/signin?new=1">Get started free →</a>
     <a class="btn g" href="/signin">Sign in</a>
@@ -230,7 +230,7 @@
 <section class="who">
   <div class="who-in">
     <h2 class="who-h">Who it's for</h2>
-    <p class="who-sub">Jobrolu is built for people going after <b>tech roles in the US</b>, and tuned hardest for <b>software engineering</b>. It works from new grad to senior, because it ranks every role against the skills and targets in <b>your</b> profile, not a fixed template.</p>
+    <p class="who-sub">Jobrolu is built for anyone whose job search runs on a <b>resume</b>, in tech and across professional fields in the US. It ranks every role against the skills and targets in <b>your</b> profile, not a fixed template, so it works from new grad to senior in whatever field you are in.</p>
     <div class="who-grid">
       <div class="who-card">
         <div class="who-ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
@@ -262,22 +262,34 @@
         <h3>Design</h3>
         <p>UX, UI, product, and interaction design.</p>
       </div>
+      <div class="who-card">
+        <div class="who-ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M2 13h20"/></svg></div>
+        <h3>Business &amp; finance</h3>
+        <p>Finance and accounting, marketing and communications, sales and business development, HR and recruiting, operations, consulting, and project and program management.</p>
+      </div>
+      <div class="who-card">
+        <div class="who-ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2 9l10 6 10-6z"/><path d="M6 11.5V17c0 1 2.7 2 6 2s6-1 6-2v-5.5"/></svg></div>
+        <h3>Healthcare, legal &amp; education</h3>
+        <p>Nursing and clinical roles, pharmacy and therapy, legal and paralegal, teaching and academia, and research and science.</p>
+      </div>
     </div>
     <div class="who-majors">
-      <span class="who-ml">Majors that fit</span>
+      <span class="who-ml">Fields and majors that fit</span>
       <span class="who-chip">Computer Science</span>
-      <span class="who-chip">Computer Engineering</span>
-      <span class="who-chip">Software Engineering</span>
+      <span class="who-chip">Engineering</span>
       <span class="who-chip">Data Science</span>
-      <span class="who-chip">Electrical / Computer Eng</span>
-      <span class="who-chip">Information Systems / IT</span>
-      <span class="who-chip">related STEM</span>
+      <span class="who-chip">Finance &amp; Accounting</span>
+      <span class="who-chip">Business &amp; Marketing</span>
+      <span class="who-chip">Nursing &amp; Health</span>
+      <span class="who-chip">Legal</span>
+      <span class="who-chip">Education</span>
+      <span class="who-chip">and more</span>
     </div>
-    <p class="who-note">Coverage is deepest in software engineering today. We're adding more fields and will update this page as that grows.</p>
+    <p class="who-note">Tech coverage is deepest today, and professional fields across finance, marketing, healthcare, legal, education, and more are live and expanding. If your work runs on a resume, Jobrolu is for you.</p>
   </div>
 </section>
 
-<div class="foot">Jobrolu · AI job matching for engineers · jobrolu.com</div>
+<div class="foot">Jobrolu · AI job matching for every professional field · jobrolu.com</div>
 
 <script>
 function lsignout(e){ if(e) e.preventDefault(); fetch("/api/auth/logout",{method:"POST",credentials:"same-origin"}).catch(function(){}).then(function(){ location.reload(); }); }

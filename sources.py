@@ -23,10 +23,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 TIMEOUT = 20
 HEADERS = {"User-Agent": "Mozilla/5.0 (job-finder)"}
 
-# Multi-field switch (mirrors prefilter.MULTIFIELD). When on, the keyword-search sources
-# fetch across professional fields rather than tech only, and USAJOBS is pulled in
-# pull_all. When off (default), behavior is exactly as before.
-MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
+# Multi-field switch (mirrors prefilter.MULTIFIELD). ON by default: the keyword-search
+# sources fetch across professional fields, not tech only, and USAJOBS is pulled in
+# pull_all. Set MULTIFIELD=off to revert to the tech-only behavior.
+MULTIFIELD = os.environ.get("MULTIFIELD", "on").strip().lower() in ("1", "true", "on", "yes")
 
 # Keyword sets for the search-based sources (Adzuna, USAJOBS). The tech set is the default
 # and reproduces prior behavior; the broad set adds professional, resume-driven non-tech
