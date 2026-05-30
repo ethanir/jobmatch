@@ -539,7 +539,15 @@ def _scored_base(profile):
             if partial is None:
                 partial = _compute_partial_base(profile, token, key)
     _start_full_compute(profile, token, key)
-    return partial, True
+    # The "finding more matches" bar should only appear when phase 2 will actually
+    # change what's on screen, i.e. when phase 1 did NOT fill the cap. For a broad
+    # field the field-relevant slice already fills the top BASE_KEEP and outranks
+    # everything off-field, so the full scan returns the same visible top: the bar
+    # would just spin with no number moving. There we report computing=False (the
+    # feed is already complete on screen) while phase 2 still runs in the background
+    # to warm the cache for the next load. For a niche field the slice is short, so
+    # the full scan genuinely adds adjacent roles, the feed grows, computing=True.
+    return partial, len(partial) < BASE_KEEP
 
 
 def _shape_top(scored_jobs):
