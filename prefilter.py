@@ -5,7 +5,15 @@ location/keyword checks against the profile.
 
 The LLM (rank.py) does the nuanced scoring on whatever survives here.
 """
+import os
 import re
+
+# Multi-field switch. OFF by default, which keeps the shared pool tech-only exactly as
+# before. Set MULTIFIELD=on in the environment to ALSO admit professional, resume-driven
+# roles in other fields (finance, marketing, sales, HR, healthcare, legal, education, ops,
+# and more) and drop only clearly hourly/manual roles where a resume plus an AI fit-read
+# adds little. Nothing about the tech pipeline changes while this is off.
+MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
 
 # Broad "is this a software / CS / tech role?" allowlist, used to build the SHARED
 # pool at full breadth. It is intentionally generous (software, data, ML, security,
@@ -51,6 +59,58 @@ NONTECH_RX = re.compile(
     r"industrial engineer|structural engineer|petroleum|\bhvac\b|plumb|electrician|"
     r"social worker|real estate|loan officer|underwriter|teacher|tutor", re.I)
 
+# Professional, resume-driven roles in non-tech fields. Used ONLY in multi-field mode to
+# WIDEN the pool beyond tech. Intentionally generous (an allowlist); per-user scoring and
+# the blocklist below narrow things afterward.
+PROFESSIONAL_ROLE_RX = re.compile(
+    # finance & accounting
+    r"\baccountant\b|accounting|\bauditor\b|\baudit\b|financial analyst|\bfinance\b|\bcontroller\b|"
+    r"\bcpa\b|\bcfa\b|\binvestment\b|equity research|financial advisor|\bwealth\b|treasury|\bfp&a\b|"
+    r"\btax\b|bookkeep|\bactuary\b|underwriter|loan officer|credit analyst|portfolio manager|"
+    # marketing & communications
+    r"|market(?:ing|er)|\bbrand\b|content (?:strategist|manager|marketing|writer)|\bseo\b|\bsem\b|"
+    r"\bgrowth\b|social media|communications|public relations|copywriter|demand generation|"
+    # sales & business development
+    r"|account executive|\bsales\b|business development|\bbdr\b|\bsdr\b|account manager|partnerships|"
+    # people / HR / recruiting
+    r"|\brecruit|talent acquisition|human resources|\bhr\b|people operations|people partner|"
+    r"compensation|benefits (?:analyst|manager)|learning and development|\bl&d\b|"
+    # operations & supply chain
+    r"|\boperations\b|\bops\b|supply chain|logistics|procurement|category manager|"
+    # legal & compliance
+    r"|\battorney\b|\blawyer\b|\bcounsel\b|\bparalegal\b|\blegal\b|compliance|contracts|regulatory|"
+    # healthcare (professional / clinical)
+    r"|\bnurse\b|\brn\b|nurse practitioner|\bphysician\b|clinician|\bpharmacist\b|therapist|"
+    r"physician assistant|medical (?:assistant|director|officer)|\bdietitian\b|dental|radiolog|"
+    r"sonograph|clinical|healthcare|health care|\bcna\b|"
+    # education & academia
+    r"|\bteacher\b|\bprofessor\b|\binstructor\b|\blecturer\b|\beducator\b|teaching|curriculum|"
+    r"\btutor\b|academic|school counselor|\bfaculty\b|school principal|"
+    # consulting / strategy / business
+    r"|consultant|consulting|\bstrategy\b|advisory|business analyst|operations analyst|"
+    # project / program management
+    r"|project manager|program manager|project coordinator|\bpmo\b|scrum master|"
+    # customer success / client services
+    r"|customer success|client services|customer experience|"
+    # writing / editorial / creative (non-product)
+    r"|\bwriter\b|\beditor\b|journalist|graphic designer|art director|creative director|"
+    # science / research (non-CS)
+    r"|research (?:associate|assistant|scientist)|\bscientist\b|\bchemist\b|biolog|laboratory|"
+    r"clinical research|"
+    # admin / executive (professional)
+    r"|executive assistant|office manager|chief of staff", re.I)
+
+# Clearly hourly / manual roles where a resume + AI fit-read adds little. Used ONLY in
+# multi-field mode to DROP these even if they slipped past the allowlist.
+HOURLY_MANUAL_RX = re.compile(
+    r"\bcashier\b|\bbarista\b|\bserver\b|\bwaiter\b|\bwaitress\b|host(?:ess)?\b|line cook|\bcook\b|"
+    r"\bchef\b|dishwasher|\bbusser\b|food service|fast food|\bretail\b|sales associate|store associate|"
+    r"stock(?:er| associate| clerk)|\bbagger\b|warehouse (?:associate|worker|operative)|\bpicker\b|"
+    r"\bpacker\b|forklift|material handler|\bdriver\b|delivery|\bcourier\b|\bchauffeur\b|\bjanitor\b|"
+    r"custodian|housekeep|\bcleaner\b|groundskeep|landscap|\bporter\b|security guard|\bguard\b|"
+    r"\blaborer\b|general labor|\bfactory\b|assembler|machine operator|production (?:worker|associate|operator)|"
+    r"\bvalet\b|\bbartender\b|\bdoorman\b|\bmaid\b|sanitation|\bmover\b", re.I)
+
 
 def prefilter_generic(jobs):
     """Build the SHARED pool: keep any software / CS / tech role at FULL breadth,
@@ -61,10 +121,21 @@ def prefilter_generic(jobs):
     kept = []
     for j in jobs:
         title = j.get("title", "") or ""
-        if not TECH_ROLE_RX.search(title):
-            continue
-        if NONTECH_RX.search(title):
-            continue
+        if MULTIFIELD:
+            # multi-field: keep any tech OR professional resume-driven role, and drop
+            # only the clearly hourly/manual ones. The non-tech blocklist is NOT applied
+            # here, because those professional roles are exactly what we now want.
+            if not (TECH_ROLE_RX.search(title) or PROFESSIONAL_ROLE_RX.search(title)):
+                continue
+            if HOURLY_MANUAL_RX.search(title):
+                continue
+        else:
+            # tech-only (default, unchanged): keep a recognized tech title unless it is
+            # also on the non-tech blocklist.
+            if not TECH_ROLE_RX.search(title):
+                continue
+            if NONTECH_RX.search(title):
+                continue
         kept.append(j)
     # de-dupe by (company, title), same as prefilter()
     seen, deduped = set(), []

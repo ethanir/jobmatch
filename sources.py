@@ -23,6 +23,28 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 TIMEOUT = 20
 HEADERS = {"User-Agent": "Mozilla/5.0 (job-finder)"}
 
+# Multi-field switch (mirrors prefilter.MULTIFIELD). When on, the keyword-search sources
+# fetch across professional fields rather than tech only, and USAJOBS is pulled in
+# pull_all. When off (default), behavior is exactly as before.
+MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
+
+# Keyword sets for the search-based sources (Adzuna, USAJOBS). The tech set is the default
+# and reproduces prior behavior; the broad set adds professional, resume-driven non-tech
+# fields so one query pass can serve many kinds of candidate.
+_TECH_QUERIES = ["software engineer", "backend engineer", "full stack engineer",
+                 "frontend engineer", "mobile engineer", "data engineer",
+                 "data scientist", "machine learning engineer", "devops engineer",
+                 "security engineer", "data analyst"]
+_BROAD_QUERIES = _TECH_QUERIES + [
+    "registered nurse", "nurse practitioner", "physical therapist", "pharmacist",
+    "accountant", "financial analyst", "auditor", "controller",
+    "marketing manager", "digital marketing", "content strategist",
+    "sales representative", "account executive", "business development",
+    "human resources", "recruiter", "operations manager", "supply chain analyst",
+    "project manager", "program manager", "business analyst", "management consultant",
+    "attorney", "paralegal", "teacher", "professor",
+    "graphic designer", "executive assistant", "customer success manager"]
+
 
 def _clean(text, limit=12000):
     if not text:
@@ -179,10 +201,7 @@ def from_adzuna(queries=None, country="us", pages=5, per_page=50):
     if not (app_id and app_key):
         return []
 
-    queries = queries or ["software engineer", "backend engineer", "full stack engineer",
-                          "frontend engineer", "mobile engineer", "data engineer",
-                          "data scientist", "machine learning engineer", "devops engineer",
-                          "security engineer", "data analyst"]
+    queries = queries or (_BROAD_QUERIES if MULTIFIELD else _TECH_QUERIES)
     out = []
     for what in queries:
         for page in range(1, pages + 1):
@@ -213,6 +232,55 @@ def from_adzuna(queries=None, country="us", pages=5, per_page=50):
                     j.get("title", ""), (j.get("location") or {}).get("display_name", ""),
                     j.get("redirect_url", ""), _clean(j.get("description", "")),
                     ts, "adzuna", ""))
+    return out
+
+
+def from_usajobs(queries=None, pages=2, per_page=250):
+    """USAJOBS aggregator: open US federal jobs across ALL fields (nursing, law, finance,
+    trades, science, admin, IT, and more). Keyword-search, like Adzuna. Needs a free key
+    plus the email you registered with, in env: USAJOBS_API_KEY and USAJOBS_EMAIL (register
+    at developer.usajobs.gov). Returns [] quietly if either is missing, so the pipeline runs
+    fine without it."""
+    key = os.environ.get("USAJOBS_API_KEY")
+    email = os.environ.get("USAJOBS_EMAIL")
+    if not (key and email):
+        return []
+    queries = queries or _BROAD_QUERIES
+    hdr = {**HEADERS, "Host": "data.usajobs.gov", "User-Agent": email,
+           "Authorization-Key": key, "Accept": "application/json"}
+    out = []
+    for what in queries:
+        for page in range(1, pages + 1):
+            params = {"Keyword": what, "ResultsPerPage": per_page, "Page": page}
+            try:
+                r = requests.get("https://data.usajobs.gov/api/search",
+                                 params=params, headers=hdr, timeout=TIMEOUT)
+                r.raise_for_status()
+                items = r.json().get("SearchResult", {}).get("SearchResultItems", []) or []
+            except Exception:
+                break          # stop this query on error (rate limit etc), keep the rest
+            if not items:
+                break
+            for it in items:
+                d = it.get("MatchedObjectDescriptor", {}) or {}
+                loc = d.get("PositionLocationDisplay", "") or ""
+                summary = d.get("QualificationSummary", "") or \
+                    ((d.get("UserArea") or {}).get("Details") or {}).get("JobSummary", "")
+                pub = d.get("PublicationStartDate", "") or ""
+                ts = None
+                if pub:
+                    try:
+                        import datetime
+                        ts = int(datetime.datetime.fromisoformat(
+                            pub.replace("Z", "+00:00")).timestamp())
+                    except Exception:
+                        ts = None
+                out.append(_norm(
+                    "usajobs", d.get("OrganizationName", "") or "U.S. Government",
+                    d.get("PositionTitle", ""), loc, d.get("PositionURI", ""),
+                    _clean(summary), ts, "", ""))
+            if len(items) < per_page:
+                break
     return out
 
 
@@ -284,5 +352,22 @@ def pull_all(companies, include_repo=True, max_workers=20):
             print(f"  {'Adzuna':<18} {len(fresh):>4} (aggregator, after dedup)")
     except Exception as e:
         print(f"  ! adzuna failed: {e}")
+
+    # USAJOBS (US federal, every field) - only in multi-field mode, only when keyed.
+    if MULTIFIELD:
+        try:
+            uj = from_usajobs()
+            if uj:
+                seen_ct = {((j.get("company") or "").lower().strip(),
+                            (j.get("title") or "").lower().strip()) for j in jobs}
+                seen_url = {j.get("url") for j in jobs if j.get("url")}
+                fresh = [j for j in uj
+                         if ((j.get("company") or "").lower().strip(),
+                             (j.get("title") or "").lower().strip()) not in seen_ct
+                         and j.get("url") not in seen_url]
+                jobs.extend(fresh)
+                print(f"  {'USAJOBS':<18} {len(fresh):>4} (federal, after dedup)")
+        except Exception as e:
+            print(f"  ! usajobs failed: {e}")
 
     return jobs

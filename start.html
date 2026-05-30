@@ -304,15 +304,18 @@ let PARSED = null;
 const SCHEMA = `{
   "name": null, "email": null, "phone": null, "location": null,
   "work_authorization": null, "requires_sponsorship": null,
+  "field": null,
   "target_titles": [], "years_experience": null,
   "education": [{"degree": null, "school": null, "dates": null}],
   "experience": [{"title": null, "company": null, "dates": null, "summary": null}],
   "skills": {"languages": [], "frameworks": [], "tools": [], "databases": []},
+  "skills_general": [],
+  "certifications": [],
   "projects": [{"name": null, "stack": [], "summary": null}],
   "preferences": {"remote_ok": null, "onsite_ok": null, "locations": [], "min_salary": null},
   "links": {"github": null, "linkedin": null, "portfolio": null}
 }`;
-const PROMPT = `Based on everything you know about me from our past conversations, plus anything I add below, output a single JSON object matching the schema for a software-engineering job-application profile. Only include facts you're confident about; use null for anything you don't know. Do not invent employers, dates, or numbers. Output ONLY the JSON.
+const PROMPT = `Based on everything you know about me from our past conversations, plus anything I add below, output a single JSON object matching the schema for a job-application profile, in whatever field I work in. Only include facts you're confident about; use null for anything you don't know. Do not invent employers, dates, or numbers. Fill "field" with my profession, "skills_general" with my key skills, tools, and methods in my own words, and "certifications" with any licenses or certifications I hold. Output ONLY the JSON.
 
 SCHEMA:
 ${SCHEMA}

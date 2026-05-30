@@ -4,7 +4,7 @@
 
 **Where the project stands, what's left, and how it ships.**
 
-![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-ongoing-orange) ![v3](https://img.shields.io/badge/v3%20launch-shipped-brightgreen) ![accounts](https://img.shields.io/badge/accounts%20%2B%20sign--in-live-brightgreen)
+![v1](https://img.shields.io/badge/v1%20engine-complete-brightgreen) ![v2](https://img.shields.io/badge/v2%20coverage-ongoing-orange) ![v3](https://img.shields.io/badge/v3%20launch-shipped-brightgreen) ![accounts](https://img.shields.io/badge/accounts%20%2B%20sign--in-live-brightgreen) ![multi-field](https://img.shields.io/badge/v4%20multi--field-engine%20complete-brightgreen)
 
 </div>
 
@@ -127,6 +127,24 @@ The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlis
 
 ---
 
+## v4 - multi-field expansion ✅ (engine complete, gated off)
+
+The reach lever. The ATS connectors already return *every* role at a company, so the hard part was never sourcing, it was the three tech-specific layers: the prefilter, the profile schema, and the ranking rubric. v4 generalizes all three in a backward-compatible way behind one switch, **`MULTIFIELD`** (default off, so the live tech product is unchanged until it is flipped on).
+
+| | What |
+|---|---|
+| ✅ | **Additive schema** - `field`, `skills_general`, `certifications` added to the profile; the resume parser and bring-your-own-AI prompt fill them for any profession. Tech profiles still use the `skills` dict + `projects`; non-tech ones leave those empty. |
+| ✅ | **Field-agnostic scoring** - `score.py` folds `skills_general` + `certifications` into the same whole-word overlap, learns finance / marketing / sales / HR / operations / legal / healthcare / education disciplines for cross-field separation, and gains a gated same-discipline title bonus so a role in the user's own field scores well even when the title words differ. |
+| ✅ | **Field-agnostic ranking** - the AI fit rubric judges skills/qualifications overlap (tech stack for technical roles, the field's own skills otherwise) and treats a missing required license or certification as a serious gap. |
+| ✅ | **Wider intake** - `prefilter.py` admits professional, resume-driven roles and drops only clearly hourly/manual ones (multi-field mode only); **Adzuna** queries broaden across fields; a new **USAJOBS** connector adds every open US federal job across all occupational series (free key + email, inert without them). |
+| ✅ | **Tested + safe** - `test_phase24_multifield.py` covers the schema, the field-agnostic scoring, the discipline classifier, the prefilter gate (off = tech-only, on = professional minus hourly), and the USAJOBS safety default. The full existing suite stays green because the switch is off by default. |
+| ☐ | **Turn-on checklist** - flip `MULTIFIELD=on`, set `USAJOBS_API_KEY` / `USAJOBS_EMAIL`, seed the registry with non-tech companies on the ATSes already supported (Workday covers banks, hospitals, universities, retailers), and raise `BASE_KEEP` so no single field crowds the capped pool. |
+| ☐ | **Manual-form polish** - pure-manual entry (no resume) still uses tech-shaped skill inputs; add first-class `skills_general` / `certifications` fields to `start.html` for people who type a non-tech profile from scratch. The resume and bring-your-own-AI paths already capture these today. |
+
+**Why it matters:** it turns "the AI fit tool for tech" into "the AI fit tool for any resume-driven professional field" while reusing the entire engine. AI fit-ranking pays off most where roles are resume-driven and fit is ambiguous (tech, finance, marketing, healthcare, consulting), which is exactly the scope chosen, hourly and manual roles are left out on purpose.
+
+---
+
 ## Definition of done
 
 - [~] Registry expanded to several thousand companies (v2.1) - `seed.py` built; feed it bigger lists
@@ -136,6 +154,7 @@ The product is **Jobrolu** (jobrolu.com). Earlier shortlist candidates (Shortlis
 - [x] Domain purchased (jobrolu.com)
 - [x] Landing page live
 - [x] Hosted feed with per-user accounts (sign up, per-user profiles + ranked feeds, in-app bring-your-own-AI ranking)
+- [~] Multi-field engine (v4) - built, tested, gated off; flip `MULTIFIELD` + seed non-tech companies to launch beyond tech
 
 ---
 

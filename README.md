@@ -38,9 +38,9 @@ Jobrolu runs the search the way it actually works: **aggregate** from clean sour
 
 ## 👤 Who it's for
 
-Jobrolu is built for people going after **tech roles in the US**, and tuned hardest for **software engineering**. It works from new grad to senior, because every role is ranked against the skills and targets in *your* profile, not a fixed template. The shared pool is broad and each person's feed is narrowed to their own discipline, level, and location, so one account fits a backend new grad and a senior SRE alike.
+Jobrolu is built for people going after **tech roles in the US**, and tuned hardest for **software engineering**. It works from new grad to senior, because every role is ranked against the skills and targets in *your* profile, not a fixed template. The shared pool is broad and each person's feed is narrowed to their own discipline, level, and location, so one account fits a backend new grad and a senior SRE alike. A built-in **multi-field mode** (off by default, flipped with one env switch) extends the exact same engine to professional, resume-driven roles in other fields, so the product can serve anyone whose job search runs on a resume.
 
-It covers software engineering (backend, frontend, full-stack, web, platform, infrastructure, cloud, systems, DevOps and SRE, QA, data engineering, security, embedded, mobile), data science / ML / AI, data analytics, hardware and electrical, product, and design. Best-matched majors are Computer Science, Computer / Software / Electrical Engineering, Data Science, Information Systems, and related STEM. Coverage is deepest in software engineering today and widens over time.
+It covers software engineering (backend, frontend, full-stack, web, platform, infrastructure, cloud, systems, DevOps and SRE, QA, data engineering, security, embedded, mobile), data science / ML / AI, data analytics, hardware and electrical, product, and design. Best-matched majors are Computer Science, Computer / Software / Electrical Engineering, Data Science, Information Systems, and related STEM. Coverage is deepest in software engineering today and widens over time. With multi-field mode on, it also covers finance and accounting, marketing and communications, sales and business development, HR and recruiting, operations and supply chain, legal, professional healthcare (nursing, pharmacy, therapy, and similar), education, consulting, project and program management, and other white-collar fields, while deliberately leaving out hourly and manual roles where a resume and an AI fit-read add little.
 
 <p align="center">
   <img src="assets/audience.png" alt="Who Jobrolu is for" width="100%">
@@ -59,8 +59,8 @@ The whole design exists to keep cost near zero while still using AI where it mat
   SOURCING                    7 ATS APIs + Adzuna aggregator + curated lists, self-growing
         |                     company registry. ~2,000 live roles from 500+ companies.   $0
         v
-  PREFILTER                   free, rule-based. Drops non-SWE titles, senior roles,
-        |                     wrong locations.                                            $0
+  PREFILTER                   free, rule-based. Keeps on-target titles (tech by default,
+        |                     professional fields in multi-field mode); scoring narrows.   $0
         v
   FREE HEURISTIC SCORE        score.py rates EVERY job against YOUR profile: title fit
         |                     (dominant), your skills, seniority matched to your own
@@ -229,6 +229,18 @@ The **self-growing registry** (`registry.py`) reads the ATS token out of every j
 A few boards (SmartRecruiters, Workday) leave the description out of their list feed. `enrich_desc.py` can fetch the full posting from their detail pages for the roles about to be ranked, so the AI reads the complete text on those too (enable with `ENRICH_DESCRIPTIONS=1`).
 
 Out of scope by design: LinkedIn and Indeed forbid scraping. The right way to use those is applying directly, by hand.
+
+### 🌐 Multi-field mode (extending past tech)
+
+The same ATS connectors already return **every** role at a company, not just engineering, so the pool can serve any field with no new plumbing. Three layers scope the product to tech: the prefilter's title rules, the profile schema (tech skills + projects), and the ranking rubric. Multi-field mode generalizes all three in a backward-compatible way and is controlled by one switch:
+
+- **`MULTIFIELD`** (env, default off). Off keeps the pool tech-only and the scoring byte-identical to before. On widens `prefilter.py` to admit professional, resume-driven roles in other fields and to drop only clearly hourly/manual ones; it broadens the **Adzuna** query set across fields; it pulls the **USAJOBS** source; and it turns on a field-agnostic same-discipline title bonus in `score.py` so a role in the user's own field scores well even when the title words differ.
+- The profile schema gained three additive fields, filled by the resume parser and the bring-your-own-AI prompt for any profession: **`field`** (the person's profession), **`skills_general`** (their real skills, tools, and methods in their own words, used for the same whole-word overlap that the tech stack uses), and **`certifications`** (licenses and certs such as RN, CPA, PMP, bar admission). Technical profiles still fill the existing `skills` dict and `projects`; non-technical ones simply leave those empty.
+- The fit-ranking rubric now judges **skills / qualifications overlap** (tech stack for technical roles, the field's own skills otherwise) and treats a missing required **license or certification** as a serious gap, so the AI ranks a nurse against a nursing posting as carefully as a backend engineer against a backend one.
+
+**USAJOBS** (`from_usajobs` in `sources.py`) adds every open US federal job across all occupational series (nursing, law, finance, science, trades, admin, IT, and more) from the official JSON API. It needs a free key plus the email you registered with, set as **`USAJOBS_API_KEY`** and **`USAJOBS_EMAIL`** (register at developer.usajobs.gov); without them it returns nothing and the pipeline is unaffected.
+
+**Staged rollout.** Turn `MULTIFIELD` on, optionally set the USAJOBS keys, and seed the registry with non-tech companies on the ATSes already supported (Workday in particular is used by banks, hospitals, universities, and retailers, so their full all-field catalogs flow in with no new code). Because the shared pool is capacity-capped (`BASE_KEEP`, ~2,000), raising that cap when going multi-field keeps any one field from crowding out the others.
 
 ---
 

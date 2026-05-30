@@ -22,8 +22,14 @@ Design choices that make the match actually good:
     the best a free score shows is 'possible'; only an LLM that reads the full
     posting earns 'strong'. That keeps every green "Strong fit" meaningful.
 """
+import os
 import re
 import time
+
+# Mirrors prefilter.MULTIFIELD. Used only to enable the field-agnostic same-discipline
+# title bonus below, so a role in the user's OWN non-tech field scores well even when the
+# exact title words differ. With this off (default), scoring is identical to before.
+MULTIFIELD = os.environ.get("MULTIFIELD", "").strip().lower() in ("1", "true", "on", "yes")
 
 # --- title / level signals -------------------------------------------------
 SENIOR_RX = re.compile(
@@ -65,14 +71,23 @@ def _word_in(skill, blob):
 
 
 def _flat_skills(profile):
-    """Flatten the profile's skills (a dict of lists) into a de-duped lowercase list.
-    A malformed profile whose skills is a plain list will raise here; that is
-    intentional: the server catches it and degrades to an empty personalized feed
-    rather than showing a feed scored from a corrupt profile."""
+    """Flatten the profile's skills into a de-duped lowercase list used for overlap
+    scoring. `skills` (a dict of lists) holds SOFTWARE skills; a malformed profile
+    whose skills is a plain list will raise here, which is intentional (the server
+    catches it and degrades rather than scoring from a corrupt profile). On top of
+    that we fold in `skills_general` and `certifications`, flat lists that carry a
+    candidate's field skills for ANY profession, so the same whole-word overlap logic
+    works for a nurse or an accountant just as it does for a software engineer."""
     s = profile.get("skills", {}) or {}
     out = []
     for k in ("languages", "frameworks", "tools", "databases", "cloud", "other"):
         out += [str(x).lower() for x in (s.get(k) or []) if x]
+    extra = profile.get("skills_general")
+    if isinstance(extra, list):
+        out += [str(x).lower() for x in extra if x]
+    certs = profile.get("certifications")
+    if isinstance(certs, list):
+        out += [str(x).lower() for x in certs if x]
     seen, uniq = set(), []
     for x in out:
         if x and x not in seen:
@@ -221,9 +236,46 @@ _DISC_DESIGN_RX = re.compile(
 _DISC_HARDWARE_RX = re.compile(
     r"hardware engineer|electrical engineer|\bfpga\b|\basic\b|\brtl\b|\bpcb\b|analog engineer|\brf\b engineer", re.I)
 
+# --- professional non-tech disciplines (active once MULTIFIELD admits these roles) ---
+# Title-level patterns so cross-field down-weighting can keep, say, a nurse's feed on
+# nursing and an accountant's on finance. Kept reasonably specific to avoid mislabeling
+# a software role; an unrecognized title still classifies as nothing and is never penalized.
+_DISC_FINANCE_RX = re.compile(
+    r"\baccountant\b|accounting|\bauditor\b|financial analyst|finance manager|\bcontroller\b|"
+    r"\bcpa\b|\bcfa\b|investment (?:banking|analyst|associate|banker)|equity research|"
+    r"financial advisor|wealth (?:manager|advisor)|\bfp&a\b|treasury analyst|tax (?:associate|manager|accountant)|"
+    r"bookkeep|\bactuary\b|underwriter|loan officer|credit analyst|portfolio manager|financial planning", re.I)
+_DISC_MARKETING_RX = re.compile(
+    r"\bmarketing\b|brand (?:manager|strategist)|content (?:marketing|strategist)|\bseo\b|\bsem\b|"
+    r"growth marketing|social media (?:manager|specialist|strategist)|communications (?:manager|specialist)|"
+    r"public relations|demand generation|\bcopywriter\b|digital marketing|product marketing", re.I)
+_DISC_SALES_RX = re.compile(
+    r"account executive|sales (?:representative|manager|associate|director|development|consultant)|"
+    r"business development|\bbdr\b|\bsdr\b|account manager|inside sales|enterprise sales|partnerships manager", re.I)
+_DISC_HR_RX = re.compile(
+    r"\brecruiter\b|recruiting|talent acquisition|human resources|\bhr\b (?:manager|generalist|business partner|coordinator)|"
+    r"people operations|people partner|compensation (?:analyst|manager)|benefits (?:analyst|manager)|learning and development", re.I)
+_DISC_OPERATIONS_RX = re.compile(
+    r"operations manager|business operations|revenue operations|\brevops\b|supply chain|"
+    r"logistics (?:manager|coordinator|analyst)|procurement|category manager", re.I)
+_DISC_LEGAL_RX = re.compile(
+    r"\battorney\b|\blawyer\b|legal counsel|\bparalegal\b|legal (?:assistant|analyst)|"
+    r"compliance (?:officer|analyst|manager)|contracts manager|regulatory affairs|general counsel", re.I)
+_DISC_HEALTHCARE_RX = re.compile(
+    r"\bnurse\b|registered nurse|\brn\b|nurse practitioner|\bphysician\b|clinician|\bpharmacist\b|"
+    r"physical therapist|occupational therapist|respiratory therapist|physician assistant|"
+    r"medical assistant|\bdietitian\b|dental hygienist|radiolog|sonograph|clinical (?:specialist|coordinator|nurse)", re.I)
+_DISC_EDUCATION_RX = re.compile(
+    r"\bteacher\b|\bprofessor\b|\binstructor\b|\blecturer\b|\beducator\b|teaching|"
+    r"curriculum (?:developer|specialist)|\btutor\b|academic advisor|school counselor", re.I)
+
 _DISC_NAMES = {
     "analytics": "data analytics", "design": "design", "eng": "software engineering",
     "hardware": "hardware", "ml_ds": "data science / ML", "product": "product management",
+    "finance": "finance / accounting", "marketing": "marketing",
+    "sales": "sales / business development", "hr": "HR / recruiting",
+    "operations": "operations", "legal": "legal", "healthcare": "healthcare",
+    "education": "education",
 }
 
 
@@ -248,6 +300,22 @@ def role_disciplines(text):
         d.add("design")
     if _DISC_HARDWARE_RX.search(t):
         d.add("hardware")
+    if _DISC_FINANCE_RX.search(t):
+        d.add("finance")
+    if _DISC_MARKETING_RX.search(t):
+        d.add("marketing")
+    if _DISC_SALES_RX.search(t):
+        d.add("sales")
+    if _DISC_HR_RX.search(t):
+        d.add("hr")
+    if _DISC_OPERATIONS_RX.search(t):
+        d.add("operations")
+    if _DISC_LEGAL_RX.search(t):
+        d.add("legal")
+    if _DISC_HEALTHCARE_RX.search(t):
+        d.add("healthcare")
+    if _DISC_EDUCATION_RX.search(t):
+        d.add("education")
     return d
 
 
@@ -281,6 +349,15 @@ def heuristic_score(job, skills, titles, locs, desired="entry",
     tpts, thit = _title_fit(title, titles)
     if tpts == 0 and user_is_swe and SWE_RX.search(title):
         tpts, thit = 16, "software engineering"      # SWE-family synonym fallback
+    elif MULTIFIELD and tpts < 14 and user_disc:
+        # Field-agnostic same-discipline fallback: a role in the user's own field
+        # (finance, nursing, marketing, ...) should read as on-target even when the
+        # exact title words differ. This mirrors the SWE fallback for every field and
+        # is gated so tech-only behavior is unchanged when MULTIFIELD is off.
+        common = role_disciplines(title) & user_disc
+        if common:
+            tpts = max(tpts, 14)
+            thit = thit or _DISC_NAMES.get(sorted(common)[0], "your field")
     score += tpts
     if tpts >= 30:
         why.append(f"Closely matches your target: {thit}")
