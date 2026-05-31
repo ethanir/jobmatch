@@ -234,6 +234,8 @@ The **self-growing registry** (`registry.py`) reads the ATS token out of every j
 
 A few boards (SmartRecruiters, Workday) leave the description out of their list feed. `enrich_desc.py` can fetch the full posting from their detail pages for the roles about to be ranked, so the AI reads the complete text on those too (enable with `ENRICH_DESCRIPTIONS=1`).
 
+**Salary on a card** shows only when the source states it, never a guess. Ashby and USAJOBS provide structured employer pay; for the boards that carry full text (Greenhouse, Lever, Ashby, Workable, Recruitee) a range is parsed out of the description, since more postings now disclose pay there under state pay-transparency laws. The parser takes ranges only and rejects anything beside bonus, equity, referral, or sign-on wording, so a sign-on bonus never reads as a salary; turn it off with `PARSE_SALARY_FROM_TEXT=off`. Adzuna's predicted estimates are captured but hidden by default, so a guessed figure never poses as posted pay.
+
 Out of scope by design: LinkedIn and Indeed forbid scraping. The right way to use those is applying directly, by hand.
 
 ### 🌐 Multi-field mode (extending past tech)

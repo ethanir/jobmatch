@@ -55,12 +55,70 @@ def _clean(text, limit=12000):
     return text[:limit]
 
 
+# --- salary parsed from description text (pay-transparency disclosures) ----------
+# A growing share of postings state a pay range in the body (CA, CO, NY, WA, and other
+# pay-transparency laws). We already keep the full text, so we read a range out of it for
+# free, with no model call. Deliberately conservative: ranges only, a salary/pay context
+# word must sit nearby, and anything near bonus/equity/referral wording is rejected, so a
+# sign-on bonus never reads as a salary. Off-switch: env PARSE_SALARY_FROM_TEXT=off.
+PARSE_SALARY_FROM_TEXT = os.environ.get(
+    "PARSE_SALARY_FROM_TEXT", "on").strip().lower() in ("1", "true", "on", "yes")
+
+# Dollar range, e.g. "$120,000 - $160,000", "$120K-$160K", "$58.50 to $72/hour". The
+# separator class includes the unicode dashes real postings use, written as escapes so
+# this file stays ASCII.
+_PAY_RANGE = re.compile(
+    r"\$\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?\s?(?:-|to|\u2013|\u2014|\u2212)\s?\$?\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?")
+# A salary/pay word must appear near the match, or we skip it.
+_PAY_CTX = re.compile(
+    r"(salary|base pay|base salary|pay range|compensation|annual|annually|per\s+year|/\s?yr|/\s?year|per\s+hour|hourly|/\s?hr|/\s?hour|an?\s+hour)", re.I)
+# If any of these sit near the match it is not base pay, so skip it.
+_PAY_REJECT = re.compile(
+    r"(bonus|sign[\s-]?on|referral|equity|stock|401|relocation|tuition|commission|per\s+diem|stipend|budget|revenue|grant|funding|portfolio|damages)", re.I)
+_PAY_HOURLY = re.compile(r"(per\s+hour|hourly|/\s?hr|/\s?hour|an?\s+hour)", re.I)
+
+
+def _salary_from_text(text):
+    """Read a salary range out of a job description, or None when there is no clear one.
+    Ranges only; a salary/pay context word must sit within ~80 chars; matches near bonus,
+    equity, or referral wording are skipped so a sign-on amount never reads as pay."""
+    if not text or len(text) < 10:
+        return None
+    try:
+        for m in _PAY_RANGE.finditer(text):
+            lead = text[max(0, m.start() - 25): m.start()]
+            tail = text[m.end(): m.end() + 12]
+            if _PAY_REJECT.search(lead) or _PAY_REJECT.search(tail):
+                continue
+            ctx = text[max(0, m.start() - 80): m.end() + 80]
+            if not _PAY_CTX.search(ctx):
+                continue
+            lo = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
+            hi = float(m.group(3).replace(",", "")) * (1000 if m.group(4) else 1)
+            if _PAY_HOURLY.search(ctx):
+                if not (5 <= lo <= 500 and 5 <= hi <= 500):
+                    continue
+                period = "hour"
+            else:
+                if not (10000 <= lo <= 5000000 and 10000 <= hi <= 5000000):
+                    continue
+                period = "year"
+            return _salary(lo, hi, "USD", period, estimated=False)
+    except Exception:
+        return None
+    return None
+
+
 def _norm(source, company, title, location, url, description, date_posted, ats, token, salary=None):
     d = {"source": source, "company": company, "title": title, "location": location,
          "url": url, "description": description, "date_posted": date_posted,
          "ats": ats, "token": token}
     if salary:
         d["salary"] = salary
+    elif description and PARSE_SALARY_FROM_TEXT:
+        s = _salary_from_text(description)
+        if s:
+            d["salary"] = s
     return d
 
 
