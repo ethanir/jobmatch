@@ -133,6 +133,26 @@
   .plan-pill.pro{color:var(--acc);border-color:var(--accln);background:var(--accdim);cursor:default}
   .btn.lock{background:none;color:var(--acc);border:1px solid var(--accln);box-shadow:none}
   .btn.lock:hover{background:var(--accdim)}
+
+  /* ---- Phone layout (max-width:600px). Desktop is byte-identical. The nav row
+     (brand + Live Feed/Profile tabs + plan + email + sign out) was overflowing
+     the viewport and forcing the page wider than the screen, so we wrap it into
+     two rows and tighten the page padding. */
+  @media(max-width:600px){
+    nav{flex-wrap:wrap;gap:9px 10px;padding:14px 16px}
+    /* dissolve the inline-styled brand+tabs wrapper so the tabs drop to their own row */
+    nav>div:first-child{display:contents !important}
+    .brand{order:1;font-size:21px}
+    .acct{order:2;margin-left:auto;gap:9px}
+    .acct-email{display:none}
+    .plan-pill{font-size:11.5px;padding:5px 10px}
+    .signout{font-size:12.5px;padding:6px 11px}
+    .tabs{order:3;flex-basis:100%;width:100%;margin-left:0;margin-top:2px;gap:6px}
+    .tab{flex:1 1 0;text-align:center;font-size:13px;padding:8px 10px}
+    .wrap{padding:16px 14px 70px}
+    /* 16px inputs stop iOS from auto-zooming the page in on focus */
+    .field input[type=text],.field select,.rep-row input[type=text],textarea{font-size:16px}
+  }
 </style>
 </head>
 <body>

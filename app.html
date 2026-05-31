@@ -288,6 +288,45 @@
   .modal.wide textarea{width:100%;min-height:96px;background:#0a0d12;border:1px solid var(--line2);border-radius:12px;padding:13px;color:var(--ink);font-family:var(--fu);font-size:12.5px;line-height:1.5;resize:vertical;outline:none}
   .modal.wide textarea:focus{border-color:var(--greenln)}
   .modal-msg.ok{color:var(--green)}
+
+  /* "Back to results" button: hidden on desktop, shown only on phones, where the
+     detail flows below the list, so a tapped job has a clear way back to the top. */
+  .mobile-back{display:none;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--fu);font-size:13.5px;font-weight:700;color:var(--ink2);padding:14px 16px 0}
+  .mobile-back:hover{color:var(--green)}
+
+  /* ---- Phone layout (max-width:600px). Desktop is byte-identical; everything
+     here is scoped to small screens. The header was the one thing forcing the
+     page wider than the viewport (brand + tabs + status + plan + email + sign
+     out packed into one non-wrapping row), so we wrap it into two rows. */
+  @media(max-width:600px){
+    .wrap{padding:0 14px}
+    /* dissolve the inline-styled brand+tabs wrapper so the tabs drop to row 2 */
+    .head-in{flex-wrap:wrap;align-items:center;gap:9px 10px;padding:11px 0 10px}
+    .head-in > div:first-child{display:contents !important}
+    .brand{order:1;font-size:21px}
+    .right{order:2;gap:9px}
+    .meta{display:none}
+    .acct-email{display:none}
+    .plan-pill{font-size:11.5px;padding:5px 10px}
+    .signout{font-size:12.5px;padding:6px 11px}
+    .tabs{order:3;flex-basis:100%;width:100%;margin-left:0;margin-top:2px;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    .tabs::-webkit-scrollbar{display:none}
+    .tab{flex:1 1 0;text-align:center;font-size:13px;padding:8px 10px}
+    main{gap:8px;padding:16px 0 56px}
+    .toolbar{margin-bottom:13px}
+    .row{padding:15px 14px;border-radius:11px}
+    .ti{font-size:18px;margin:4px 0 8px}
+    .scorebadge{top:15px;right:14px}
+    /* 16px inputs stop iOS from auto-zooming the page in on focus */
+    .searchbox input{font-size:16px;padding:11px 34px 11px 36px}
+    .name-in{font-size:16px}
+    .modal.wide textarea,.rankbox textarea.promptview{font-size:16px}
+    .mobile-back{display:flex}
+    .d-head{padding:18px 16px 16px;gap:12px}
+    .d-ti{font-size:22px}
+    .d-body{padding:18px 16px}
+    pre.email{font-size:13.5px}
+  }
 </style>
 </head>
 <body>
@@ -840,6 +879,7 @@ function renderDetail(j){
   const pa=postedAgo(j.posted_ts);
   document.getElementById("detailWrap").innerHTML = `
   <div class="detail">
+    <button class="mobile-back" onclick="backToList()" aria-label="Back to results"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Back to results</button>
     <div class="d-head">
       <div>
         <div class="d-co">${esc(j.company)}</div>
@@ -898,9 +938,15 @@ function select(id){
   // otherwise tapping a job appears to do nothing. Offset clears the sticky header.
   if(window.innerWidth<=880){
     const d=document.getElementById("detailWrap");
-    if(d){ const y=d.getBoundingClientRect().top+window.pageYOffset-78; window.scrollTo({top:y,behavior:"smooth"}); }
+    // Clear whatever height the (now two-row) header actually is, not a fixed guess.
+    const hdr=document.querySelector("header");
+    const offset=(hdr?hdr.offsetHeight:64)+10;
+    if(d){ const y=d.getBoundingClientRect().top+window.pageYOffset-offset; window.scrollTo({top:y,behavior:"smooth"}); }
   }
 }
+// Phones only: the "Back to results" button at the top of the detail scrolls back
+// up to the job list. On desktop the button is hidden, so this is never reached.
+function backToList(){ window.scrollTo({top:0,behavior:"smooth"}); }
 function setFilter(f){FILTER=f;SELECTED=null;PAGE=1;render();}
 function showMore(){PAGE++;render();}
 function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
