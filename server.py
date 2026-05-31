@@ -819,25 +819,19 @@ _SYSTEM_LABELS = {
 # instant instead of recomputing on every visit. The pool only changes on a
 # scan, so this is never stale by more than one scan or the TTL.
 _COV_CACHE = {"data": None, "token": None, "ts": 0.0}
-_COV_TTL = 600.0
+# The cache is keyed by the pool token, so a new pool invalidates it on its own.
+# The TTL is just a long safety refresh; it is generous so an unchanged pool is
+# served from cache and the page never pays to reclassify the whole pool again.
+_COV_TTL = 21600.0          # 6 hours
+_COV_LOCK = threading.Lock()
+_COV_COMPUTING = {"on": False}
 
 
-@app.get("/api/coverage")
-def coverage():
-    """Self-measured coverage stats from Jobrolu's OWN live pool and registry.
-
-    Every number here is real and grows as we add jobs and companies; nothing
-    claims to know the total size of any outside job market, because that number
-    is genuinely unknowable. Roles are classified into fields by the same engine
-    that ranks them, so a single role can count toward more than one field (an ML
-    engineer is both software and data); field counts therefore do not sum to the
-    role total, and the page presents them as relative volume, not a share."""
+def _compute_coverage(token):
+    """Walk the shared pool once and build the coverage payload. Pure read-only
+    work (the pool list and the title classifier), so it is safe to run in a
+    background thread for stale-while-revalidate refreshes."""
     import score
-    now = time.time()
-    token = _pool_token()
-    c = _COV_CACHE
-    if c["data"] is not None and c["token"] == token and (now - c["ts"]) < _COV_TTL:
-        return c["data"]
     pool = _pool_list()  # READ-ONLY shared pool (DB-first, file fallback)
     companies = set()
     by_field = {}
@@ -875,7 +869,7 @@ def coverage():
     systems = [{"key": s, "label": _SYSTEM_LABELS.get(s, s.title()),
                 "count": by_system[s]} for s in by_system]
     systems.sort(key=lambda x: -x["count"])
-    result = {
+    return {
         "live_roles": len(pool),
         "companies_live": len(companies),
         "companies_tracked": tracked,
@@ -883,7 +877,62 @@ def coverage():
         "systems": systems,
         "updated": int(time.time()),
     }
-    _COV_CACHE.update(data=result, token=token, ts=now)
+
+
+def _coverage_refresh_async(token):
+    """Recompute coverage in the background and store it. Only one refresh runs at
+    a time, so a burst of visitors never kicks off a pile of pool walks."""
+    with _COV_LOCK:
+        if _COV_COMPUTING["on"]:
+            return
+        _COV_COMPUTING["on"] = True
+
+    def _run():
+        try:
+            result = _compute_coverage(token)
+            with _COV_LOCK:
+                _COV_CACHE.update(data=result, token=token, ts=time.time())
+        except Exception:
+            pass
+        finally:
+            with _COV_LOCK:
+                _COV_COMPUTING["on"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@app.get("/api/coverage")
+def coverage():
+    """Self-measured coverage stats from Jobrolu's OWN live pool and registry.
+
+    Every number here is real and grows as we add jobs and companies; nothing
+    claims to know the total size of any outside job market, because that number
+    is genuinely unknowable. Roles are classified into fields by the same engine
+    that ranks them, so a single role can count toward more than one field (an ML
+    engineer is both software and data); field counts therefore do not sum to the
+    role total, and the page presents them as relative volume, not a share.
+
+    Serving is stale-while-revalidate: a request is answered from the last good
+    payload instantly, and a background refresh runs when the pool has changed or
+    the safety TTL has lapsed. Only the very first request after a cold start pays
+    for the full pool walk; every later visitor gets the numbers without waiting."""
+    now = time.time()
+    token = _pool_token()
+    with _COV_LOCK:
+        data = _COV_CACHE["data"]
+        ctoken = _COV_CACHE["token"]
+        cts = _COV_CACHE["ts"]
+    if data is not None and ctoken == token and (now - cts) < _COV_TTL:
+        return data
+    if data is not None:
+        # Stale (pool changed or TTL lapsed): hand back what we have and refresh
+        # behind the scenes so the page never blocks on the heavy classify pass.
+        _coverage_refresh_async(token)
+        return data
+    # Nothing cached yet (fresh process): compute once, synchronously.
+    result = _compute_coverage(token)
+    with _COV_LOCK:
+        _COV_CACHE.update(data=result, token=token, ts=time.time())
     return result
 
 

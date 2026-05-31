@@ -153,6 +153,28 @@
     /* 16px inputs stop iOS from auto-zooming the page in on focus */
     .field input[type=text],.field select,.rep-row input[type=text],textarea{font-size:16px}
   }
+
+  /* ---- Overlays: a full-screen loader for resume upload and a pop-out modal for
+     the bring-your-own-AI panel, so neither opens inline under the cards. ---- */
+  .overlay{position:fixed;inset:0;z-index:80;display:none;align-items:flex-start;justify-content:center;padding:40px 18px;background:rgba(8,10,14,.72);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);overflow-y:auto}
+  .overlay.show{display:flex}
+  .overlay .panel{display:block;position:relative;margin:0 auto;max-width:640px;width:100%;max-height:none}
+  .overlay.show .panel{animation:pop .22s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+  .modal-x{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:9px;border:1px solid var(--line2);background:var(--card2);color:var(--ink2);font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s}
+  .modal-x:hover{border-color:var(--acc);color:var(--acc)}
+  .overlay.loader{align-items:center}
+  .loadcard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:34px 38px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  .spinner{width:42px;height:42px;margin:0 auto 18px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loadtitle{font-family:var(--fd);font-size:19px;font-weight:600;color:var(--ink);margin-bottom:8px}
+  .loadsub{font-size:13.5px;color:var(--ink2);font-weight:600;line-height:1.5}
+  @media(prefers-reduced-motion:reduce){.spinner{animation:none}.overlay.show .panel{animation:none}}
+
+  /* Edit mode: an existing profile does not need the new-user method chooser, so we
+     hide the intro and the three option cards and show just the prefilled form. */
+  #buildWrap.editing .head{display:none}
+  #buildWrap.editing .cards{display:none}
 </style>
 </head>
 <body>
@@ -210,8 +232,10 @@
     </div>
   </div>
 
-  <!-- BYO AI panel -->
+  <!-- BYO AI panel (opens as a pop-out modal) -->
+  <div class="overlay" id="byoOverlay">
   <div class="panel" id="panel">
+    <button class="modal-x" type="button" aria-label="Close" onclick="closeByo()">&times;</button>
     <h3>Bring your own AI</h3>
     <p class="lead">Three quick steps. No API key, no cost.</p>
     <div class="num"><div class="n">1</div><div class="t"><b>Copy this prompt</b> and paste it into ChatGPT or Claude (the free web version is fine).</div></div>
@@ -224,6 +248,7 @@
     <textarea id="jsonIn" placeholder="Paste the JSON your AI returned here..."></textarea>
     <button class="btn p" style="margin-top:14px;width:auto;padding:13px 26px" onclick="saveProfile()">Review my profile →</button>
     <div class="msg" id="byoMsg"></div>
+  </div>
   </div>
 
   <!-- manual form panel -->
@@ -313,7 +338,15 @@
   </div>
   </div>
 
-  <a class="back" href="/">← Back</a>
+  <a class="back" id="backLink" href="/">← Back</a>
+</div>
+
+<div class="overlay loader" id="resumeLoader" role="status" aria-live="polite">
+  <div class="loadcard">
+    <div class="spinner"></div>
+    <div class="loadtitle">Reading your resume</div>
+    <div class="loadsub">Pulling out your roles, skills, and experience. This takes a few seconds.</div>
+  </div>
 </div>
 
 <script>
@@ -346,7 +379,14 @@ EXTRA INFO FROM ME:
 
 document.getElementById("prompt").textContent = PROMPT;
 
-function togglePanel(){document.getElementById("panel").classList.toggle("show");document.getElementById("panel").scrollIntoView({behavior:"smooth",block:"nearest"});}
+function openByo(){ var o=document.getElementById("byoOverlay"); if(o) o.classList.add("show"); }
+function closeByo(){ var o=document.getElementById("byoOverlay"); if(o) o.classList.remove("show"); }
+function togglePanel(){ openByo(); }   // "Use my own AI" card button: open the pop-out
+// Close the pop-out on a backdrop click or Escape.
+document.addEventListener("click",function(e){ if(e.target && e.target.id==="byoOverlay") closeByo(); });
+document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeByo(); });
+function showResumeLoader(){ var o=document.getElementById("resumeLoader"); if(o) o.classList.add("show"); }
+function hideResumeLoader(){ var o=document.getElementById("resumeLoader"); if(o) o.classList.remove("show"); }
 function copyPrompt(){navigator.clipboard?.writeText(PROMPT);const b=document.getElementById("copyBtn");b.textContent="Copied";b.classList.add("done");setTimeout(()=>{b.textContent="Copy";b.classList.remove("done")},1500);}
 
 function reviewProfile(p, note){
@@ -372,9 +412,11 @@ document.getElementById("resumeFile").addEventListener("change",function(){
   if(!f)return;
   document.getElementById("fname").textContent=f.name;
   msg.className="msg";msg.textContent="Uploading and reading your resume...";
+  showResumeLoader();
   const fd=new FormData();fd.append("file",f);
   fetch(API+"/api/onboard",{method:"POST",body:fd})
     .then(r=>r.json()).then(d=>{
+      hideResumeLoader();
       if(d.ok && d.profile){
         const p=d.profile;
         const skillCount=allSkills(p).length;
@@ -388,7 +430,7 @@ document.getElementById("resumeFile").addEventListener("change",function(){
         }
       }
       else{msg.className="msg err";msg.textContent=d.error||"Could not read that file.";}
-    }).catch(()=>{msg.className="msg err";msg.textContent="We couldn't reach the server. Check your connection and try again.";});
+    }).catch(()=>{hideResumeLoader();msg.className="msg err";msg.textContent="We couldn't reach the server. Check your connection and try again.";});
 });
 
 /* ---------- manual profile form ---------- */
@@ -399,7 +441,7 @@ function splitSemi(s){return [...new Set((s||"").split(";").map(x=>x.trim()).fil
 
 function toggleForm(){
   const p=document.getElementById("formPanel");
-  document.getElementById("panel").classList.remove("show");
+  closeByo();
   p.classList.add("show");
   document.getElementById("fTitles").focus({preventScroll:true});
   p.scrollIntoView({behavior:"smooth",block:"start"});
@@ -568,13 +610,22 @@ function renderProfileView(p){
 }
 function showProfileView(){ document.getElementById("profileView").style.display=""; document.getElementById("buildWrap").style.display="none"; }
 function showBuild(forEdit){
+  var bw=document.getElementById("buildWrap");
   document.getElementById("profileView").style.display="none";
-  document.getElementById("buildWrap").style.display="";
+  bw.style.display="";
+  var back=document.getElementById("backLink");
   if(forEdit){
-    var h=document.querySelector("#buildWrap .head h1"); if(h) h.textContent="Edit your profile.";
-    var sub=document.querySelector("#buildWrap .head p"); if(sub) sub.textContent="Update anything below, then save to re-rank your feed.";
+    // Editing an existing profile: skip the new-user method chooser and show just
+    // the prefilled form, with a clean heading and a way back to the profile view.
+    bw.classList.add("editing");
+    var fh=document.querySelector("#formPanel h3"); if(fh) fh.textContent="Edit your profile";
+    var fl=document.querySelector("#formPanel .lead"); if(fl) fl.textContent="Update anything below, then save to re-rank your feed.";
+    if(back){ back.textContent="\u2190 Back to profile"; back.setAttribute("href","#"); back.onclick=function(e){ e.preventDefault(); showProfileView(); }; }
     openForm();
     var fp=document.getElementById("formPanel"); if(fp) fp.scrollIntoView({behavior:"smooth",block:"start"});
+  }else{
+    bw.classList.remove("editing");
+    if(back){ back.textContent="\u2190 Back"; back.setAttribute("href","/"); back.onclick=null; }
   }
 }
 // Plan state (free vs Pro). Resume upload, the manual form, and the your-own-AI
