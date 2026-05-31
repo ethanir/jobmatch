@@ -299,6 +299,24 @@ def from_simplify_repo():
     return out
 
 
+def from_vansh_repo():
+    """Second free, daily-updated new-grad list (vanshb03/New-Grad-2027). Same
+    schema as the Simplify repo (company_name/title/locations/url/date_posted/
+    active/is_visible), US + Canada + Remote, SWE/quant/PM. Pure additional
+    coverage; pull_all dedupes it against everything else so overlaps are dropped."""
+    url = ("https://raw.githubusercontent.com/vanshb03/"
+           "New-Grad-2027/dev/.github/scripts/listings.json")
+    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT); r.raise_for_status()
+    out = []
+    for j in r.json():
+        if not (j.get("active") and j.get("is_visible")):
+            continue
+        out.append(_norm("vansh_repo", j.get("company_name", ""), j.get("title", ""),
+                         "; ".join(j.get("locations", [])), j.get("url", ""), "",
+                         j.get("date_posted"), "", ""))
+    return out
+
+
 ATS = {"greenhouse": from_greenhouse, "lever": from_lever, "ashby": from_ashby,
        "smartrecruiters": from_smartrecruiters, "recruitee": from_recruitee,
        "workable": from_workable, "workday": from_workday}
@@ -335,6 +353,23 @@ def pull_all(companies, include_repo=True, max_workers=20):
             print(f"  {'SimplifyRepo':<18} {len(got):>4} (new-grad list)")
         except Exception as e:
             print(f"  ! simplify repo failed: {e}")
+
+        # Second free new-grad list (vanshb03). Dedup against what we have by
+        # (company+title) and url, so roles already pulled above aren't doubled.
+        try:
+            vg = from_vansh_repo()
+            if vg:
+                seen_ct = {((j.get("company") or "").lower().strip(),
+                            (j.get("title") or "").lower().strip()) for j in jobs}
+                seen_url = {j.get("url") for j in jobs if j.get("url")}
+                fresh = [j for j in vg
+                         if ((j.get("company") or "").lower().strip(),
+                             (j.get("title") or "").lower().strip()) not in seen_ct
+                         and j.get("url") not in seen_url]
+                jobs.extend(fresh)
+                print(f"  {'VanshRepo':<18} {len(fresh):>4} (new-grad list, after dedup)")
+        except Exception as e:
+            print(f"  ! vansh repo failed: {e}")
 
     # Adzuna aggregator (only runs if ADZUNA_APP_ID / ADZUNA_APP_KEY are set)
     try:

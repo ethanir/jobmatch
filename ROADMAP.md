@@ -14,7 +14,7 @@
 
 The engine is **done**. It sources, ranks, drafts outreach, and runs cheap. It found real strong-fit roles and was used to apply to them.
 
-The biggest ongoing lever is **coverage**: the ranking is smart, but it can only rank jobs that make it into the funnel, and the funnel has since grown from ~400 companies on 6 ATS types to ~7,265 companies across 9 job systems. The product shipped as Jobrolu (jobrolu.com); widening coverage continues.
+The biggest ongoing lever is **coverage**: the ranking is smart, but it can only rank jobs that make it into the funnel, and the funnel has since grown from ~400 companies on 6 ATS types to ~7,265 companies across 9 job systems, plus two free daily-updated new-grad lists and the Adzuna and USAJOBS aggregators. The product shipped as Jobrolu (jobrolu.com); widening coverage continues, on free sources only.
 
 That's the whole remaining plan. Everything else is polish.
 
@@ -24,10 +24,14 @@ That's the whole remaining plan. Everything else is polish.
 
 Launched and in daily use. Recent and current work, newest first:
 
-- **Mobile UX (in progress, top priority).** The desktop feed is solid; the phone layout needs a real pass. The detail panel was unreachable on tap (first fix shipped); the header and general polish come next. Most job seekers are on phones, so this is the highest-value fix right now.
+- **Second free new-grad list added (shipped).** `from_vansh_repo` pulls vanshb03/New-Grad-2027, a daily-updated public list with the same clean JSON schema as the Simplify list (US/Canada/Remote, SWE/quant/PM), deduped on merge against everything already gathered. Free coverage, zero new risk: same parse path as the source we already trusted.
+- **Free-source research (done, decided what NOT to add).** Surveyed the public new-grad job lists on GitHub. Two expose clean machine-readable JSON and are safe to ingest: SimplifyJobs/New-Grad-Positions (already used) and vanshb03/New-Grad-2027 (now added). Others, including speedyapply's SWE and AI lists and jobright-ai's own field repos, publish only README markdown tables; parsing those is fragile (silent breakage on any layout change can pollute the pool), so they are deliberately left out unless they publish JSON. Confirmed again that Indeed (API closed 2021), LinkedIn (jobs API is partner-only, no search/extraction), and Glassdoor (partner API closed 2023) have no clean legal pull; a Google-Jobs-backed API (JSearch free tier, or SerpApi ~$25-75/mo) is the only paid way to widen beyond new-grad, with salary still sparse.
+- **Freshness labels on every feed card (shipped).** Each card shows a real "Posted X" when the source provided a date, otherwise "Added X" for when the role entered the pool, so nothing is blank and nothing is invented. Closes one of the per-card information gaps competitors had.
+- **Head-to-head vs Jobright (run, encouraging but not yet proof).** Same new-grad SWE profile, matched filters. Jobrolu's tiering held to a tight Strong set with reasons and gaps; Jobright handed out a wall of 96-98% "strong" matches across mismatched roles (PHP shop, C++ HFT, defense-clearance, even internships and the same role scored two different ways), confirming the calibration edge is real. Caveat: one uncontrolled comparison on one resume, not a published number. To make it a claim, run the same resume through both with matched filters and rate each listing's true fit, ideally tracking which lead to replies.
+- **Mobile UX (shipped).** Header wraps cleanly on phones, the detail panel is reachable via a Back-to-results control, inputs no longer trigger iOS zoom, and the Profile edit flow lands straight on the form instead of the new-user chooser.
 - **Two-phase feed (shipped).** First load scores your field-relevant matches in seconds, then fills the rest of the pool from a background thread, so a new account sees matches in about 30 seconds instead of minutes.
 - **Cross-field matching (validated).** A dozen real resumes across fields confirm each field's own roles rise while off-field roles sink. The engine is field-agnostic.
-- **Coverage strategy (researched, decided): free only.** Indeed and LinkedIn have closed their job-search APIs; paid aggregators run roughly $800 a month and mostly resell thin, duplicate listings. The clean ATS platforms we already crawl (Greenhouse alone has 7,500-plus companies) still have thousands more boards to add for $0 with full descriptions. Expand those; do not pay for data.
+- **Coverage strategy (researched, decided): free only.** Indeed and LinkedIn have closed their job-search APIs; paid aggregators run roughly $800 a month and mostly resell thin, duplicate listings. The clean ATS platforms we already crawl (Greenhouse alone has 7,500-plus companies), plus the free daily new-grad lists, still have thousands more boards to add for $0 with full descriptions. Expand those; do not pay for data.
 - **Competitive position (honest).** Rivals like Jobright and Sorce carry 5 to 8 million listings; we do not, and we never claim to win on count. We win on judgment: every role read in full, ranked to fit, the person applies themselves, every field, fit verifiable free with their own AI. That is the opposite of the auto-apply spray the market is turning against.
 - **Shelved on purpose.** A paste-in or browser-extension job analyzer (low signal from search-page pastes, plus legal risk in re-posting listings). Build only if real users ask.
 
@@ -104,6 +108,9 @@ even bigger public lists*.
   `seed_workday.py`). Per-company tenant/site/server, no auth. Dead boards skip quietly.
 - ✅ **Adzuna aggregator** - keyword index across many boards (`from_adzuna`), free API
   key, deduped against ATS pulls. Whole new source type beyond company-by-company.
+- ✅ **Free new-grad lists** - two public, daily-updated JSON lists (SimplifyJobs/New-Grad-Positions
+  and vanshb03/New-Grad-2027), same clean schema, US/Canada/Remote, deduped on merge. $0,
+  no key. Only JSON-publishing lists are ingested; README-only tables are skipped as too fragile.
 - ⚠️ **iCIMS / Taleo** - large employers, but no clean public API (anti-bot). Still hard.
 - ❌ **LinkedIn / Indeed** - actively block scraping and forbid it in their ToS (account-ban
   risk). Deliberately out of scope; the right way to use those is applying directly, by hand.

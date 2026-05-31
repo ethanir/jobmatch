@@ -56,8 +56,9 @@ The whole design exists to keep cost near zero while still using AI where it mat
   resume / profile            (onboard.py: PDF/DOCX, even scanned -> structured JSON via one cheap LLM call)
         |
         v
-  SOURCING                    7 ATS APIs + Adzuna + USAJOBS + curated lists, self-growing
-        |                     registry. 9 job systems, 126,000+ roles, 7,000+ companies.  $0
+  SOURCING                    7 ATS APIs + Adzuna + USAJOBS + two curated new-grad
+        |                     lists, self-growing registry. 126,000+ roles, 7,000+
+        |                     companies, all from clean ToS-friendly sources.    $0
         v
   PREFILTER                   free, rule-based. Keeps on-target titles (tech by default,
         |                     professional fields in multi-field mode); scoring narrows.   $0
@@ -276,7 +277,7 @@ Knobs: `TOP_N=0` for a fully free run, `TOP_N=300` to rank deeper. See `RUNNING.
 ```
 jobrolu/
 ├── main.py          orchestrator: source -> prefilter -> free score -> AI rank -> cache -> enrich
-├── sources.py       7 ATS connectors + Adzuna + curated lists (parallel)
+├── sources.py       7 ATS connectors + Adzuna + USAJOBS + two curated new-grad lists (parallel)
 ├── registry.py      self-growing company -> token registry
 ├── seed*.py         widen the registry ($0 API, validated)
 ├── prefilter.py     free rule-based cut before any AI call
