@@ -101,15 +101,59 @@
   .upd{font-size:11.5px;color:var(--mut);font-weight:600;margin-top:8px}
 
   @media(prefers-reduced-motion:reduce){.tag .dot{animation:none}.ffill{transition:none}}
+
+  /* Signed-in nav. Anonymous visitors keep the public nav above; when /api/auth/me
+     reports a member, JS adds .member to the nav and this layout takes over so the
+     tabs and account controls match the in-app header. Built with Coverage's own
+     palette so nothing depends on tokens this page does not define. */
+  .nleft{display:flex;align-items:center}
+  .tabs{display:none;gap:4px;margin-left:18px}
+  #nav.member .tabs{display:flex}
+  .tab{font-family:var(--fb);font-size:14px;font-weight:700;color:var(--mut);text-decoration:none;padding:7px 14px;border-radius:9px;transition:color .15s,background .15s;white-space:nowrap}
+  .tab:hover{color:var(--ink2)}
+  .tab.active{color:var(--ink);background:var(--card)}
+  .acct{display:flex;align-items:center;gap:10px}
+  .acct-email{font-family:var(--fb);font-size:12.5px;color:var(--mut);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .signout{font-family:var(--fb);font-size:13px;font-weight:700;color:var(--ink2);background:none;border:1px solid var(--line2);border-radius:9px;padding:7px 13px;cursor:pointer;transition:border-color .15s,color .15s}
+  .signout:hover{border-color:#224f38;color:var(--acc)}
+  .plan-pill{font-family:var(--fb);font-size:12px;font-weight:800;letter-spacing:.02em;border-radius:999px;padding:6px 12px;cursor:pointer;border:1px solid var(--line2);color:var(--ink2);background:none;transition:border-color .15s,color .15s;white-space:nowrap}
+  .plan-pill:hover{border-color:#224f38;color:var(--acc)}
+  .plan-pill.pro{color:var(--acc);border-color:#224f38;background:var(--accdim);cursor:default}
+  .navx-mem{display:none}
+  #nav.member .navx-anon{display:none}
+  #nav.member .navx-mem{display:flex}
+  @media(max-width:600px){
+    #nav{flex-wrap:wrap;gap:9px 10px;padding:14px 16px}
+    #nav .nleft{display:contents}
+    .brand{font-size:21px}
+    #nav.member .acct{order:2;margin-left:auto;gap:9px}
+    #nav.member .acct-email{display:none}
+    #nav.member .plan-pill{font-size:11.5px;padding:5px 10px}
+    #nav.member .signout{font-size:12.5px;padding:6px 11px}
+    #nav.member .tabs{order:3;flex-basis:100%;width:100%;margin-left:0;margin-top:2px;gap:6px}
+    #nav.member .tab{flex:1 1 0;text-align:center;font-size:13px;padding:8px 10px}
+  }
 </style>
 </head>
 <body>
 
-<nav>
-  <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
+<nav id="nav">
+  <div class="nleft">
+    <a class="brand" href="/"><span class="mk"></span>Jobrolu</a>
+    <div class="tabs">
+      <a class="tab" href="/app">Live Feed</a>
+      <a class="tab" href="/start">Profile</a>
+      <a class="tab active" href="/coverage">Coverage</a>
+    </div>
+  </div>
   <div class="nav-r">
-    <a class="txt" href="/">Home</a>
-    <a class="pill" href="/signin?new=1">Get started</a>
+    <a class="txt navx-anon" href="/">Home</a>
+    <a class="pill navx-anon" href="/signin?new=1">Get started</a>
+    <div class="acct navx-mem">
+      <button class="plan-pill" id="planPill" style="display:none"></button>
+      <span class="acct-email" id="acctEmail"></span>
+      <button class="signout" onclick="signOut()">Sign out</button>
+    </div>
   </div>
 </nav>
 
@@ -150,7 +194,7 @@
 </section>
 
 <div class="cta">
-  <a class="btn" href="/signin?new=1">Build your profile free &rarr;</a>
+  <a class="btn" id="ctaBtn" href="/signin?new=1">Build your profile free &rarr;</a>
 </div>
 
 <div class="foot">
@@ -166,6 +210,38 @@
 
 <script>
 function fmt(n){ return (n||0).toLocaleString("en-US"); }
+
+// Signed-in chrome: this page is public, so by default it shows the marketing nav
+// and CTA. If the visitor is a member, swap the nav to the in-app header (tabs plus
+// account controls) and repoint the CTA at their feed. Anonymous visitors are left
+// exactly as-is, with no redirect, so /coverage still works as a public page.
+var API = "";
+var IS_PRO = false, PLAN_NAME = "Pro";
+function renderPlan(){
+  var p = document.getElementById("planPill"); if(!p) return;
+  p.style.display = "";
+  if(IS_PRO){ p.className = "plan-pill pro"; p.textContent = PLAN_NAME; p.onclick = null; }
+  else{ p.className = "plan-pill"; p.textContent = "Free \u00b7 Upgrade"; p.onclick = function(){ location.href = "/app"; }; }
+}
+async function signOut(){
+  try{ await fetch(API+"/api/auth/logout",{method:"POST",credentials:"same-origin"}); }catch(e){}
+  location.replace("/signin");
+}
+(function(){
+  fetch(API+"/api/auth/me",{credentials:"same-origin"})
+    .then(function(r){ return r.json(); })
+    .then(function(m){
+      if(!m || !m.signed_in) return;            // anonymous: keep the public nav + CTA
+      var nav = document.getElementById("nav"); if(nav) nav.className = "member";
+      var el = document.getElementById("acctEmail"); if(el) el.textContent = m.email || "";
+      IS_PRO = !!m.is_pro;
+      if(m.plan_name) PLAN_NAME = m.plan_name;
+      renderPlan();
+      var cta = document.getElementById("ctaBtn");
+      if(cta){ cta.textContent = "Go to your live feed \u2192"; cta.href = "/app"; }
+    })
+    .catch(function(){});
+})();
 
 // Count-up animation for the hero number (respects reduced motion).
 function countUp(el, target){
