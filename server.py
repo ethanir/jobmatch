@@ -670,6 +670,7 @@ def _shape(job):
         "first_seen": job.get("first_seen", "") or "",
         "status": job.get("status", "") or "",
         "posted_ts": posted_ts,
+        "salary": job.get("salary"),
     }
 
 
@@ -789,6 +790,7 @@ def _visitor_feed(user_id, profile, tier):
             "first_seen": j.get("first_seen", "") or "",
             "date_posted": j.get("date_posted"),
             "status": statusmap.get(jid, ""),
+            "salary": j.get("salary"),
         }))
     order = {"strong": 0, "possible": 1, "skip": 2}
     out.sort(key=lambda x: (order.get(x["tier"], 3), -(x["score"] or 0)))

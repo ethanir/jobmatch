@@ -29,6 +29,7 @@
   .sub{font-family:var(--fu);font-size:13.5px;color:var(--mut);margin-left:14px}
   .right{display:flex;align-items:center;gap:12px}
   .meta{font-family:var(--fu);font-size:12.5px;color:var(--mut)}
+  .loc .sal,.d-sal{color:var(--ink2);font-weight:600}
   .lcount{display:none;align-items:center;gap:8px;padding:6px 12px;background:var(--greenbg);border:1px solid var(--greenln);border-radius:10px;text-decoration:none;transition:border-color .15s}
   .lcount:hover{border-color:var(--green)}
   .lcount .ld{position:relative;width:7px;height:7px;flex:0 0 auto;border-radius:99px;background:var(--green);box-shadow:0 0 8px var(--green)}
@@ -796,7 +797,7 @@ function render(){
       <span class="scorebadge ${badgeClass(j)}">${badgeText(j)}</span>
       <div class="co">${esc(j.company)}${j.is_new?'<span class="new">NEW</span>':''}</div>
       <div class="ti">${esc(j.title)}</div>
-      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span>${ageHtml(j)}${j.status?`<span class="stpill st-${j.status}">${statusLabel(j.status)}</span>`:""}</div>
+      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span>${salaryHtml(j)}${ageHtml(j)}${j.status?`<span class="stpill st-${j.status}">${statusLabel(j.status)}</span>`:""}</div>
     </div>`).join("")
     + (rows.length>shown.length
         ? '<button class="loadmore" onclick="showMore()">Show more <b>('+(rows.length-shown.length)+' left)</b></button>'
@@ -862,6 +863,34 @@ function ageHtml(j){
   return t ? ('<span>\u00b7</span><span>' + esc(t) + '</span>') : "";
 }
 
+/* Compact pay formatting: 120000 -> "$120K", 1500000 -> "$1.5M", 45 -> "$45". */
+function money(n){
+  if(n==null || isNaN(n)) return "";
+  n = Math.round(n);
+  if(n >= 1000000){ const m = n/1000000; return "$" + (m>=10?Math.round(m):(m.toFixed(1).replace(/\.0$/,""))) + "M"; }
+  if(n >= 1000){ return "$" + Math.round(n/1000) + "K"; }
+  return "$" + n;
+}
+/* We only show pay a source actually stated. An aggregator's predicted guess
+   (estimated) is hidden by default, so a made-up number never reads as a posted
+   salary; flip SHOW_ESTIMATED_PAY to surface those, labelled "est.". Returns ""
+   when there's nothing worth showing, so the card simply omits it. */
+const SHOW_ESTIMATED_PAY = false;
+function salaryText(j){
+  const s = j.salary;
+  if(!s || (s.min==null && s.max==null)) return "";
+  if(s.estimated && !SHOW_ESTIMATED_PAY) return "";
+  const lo = money(s.min), hi = money(s.max);
+  const range = (lo && hi && lo!==hi) ? (lo + " - " + hi) : (lo || hi);
+  if(!range) return "";
+  const per = (s.period==="hour") ? "/hr" : "/yr";
+  return (s.estimated ? "est. " : "") + range + per;
+}
+function salaryHtml(j){
+  const t = salaryText(j);
+  return t ? ('<span>\u00b7</span><span class="sal">' + esc(t) + '</span>') : "";
+}
+
 function statusControl(j){
   const s=j.status||"";
   const opt=(val,lbl)=>`<button class="${s===val?'on':''}" onclick="setStatus('${j.id}','${val}',event)"><span class="stdot d-${val}"></span>${lbl}</button>`;
@@ -906,7 +935,7 @@ function renderDetail(j){
       <div>
         <div class="d-co">${esc(j.company)}</div>
         <h1 class="d-ti">${esc(j.title)}</h1>
-        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span>${pa?`<span>·</span><span class="d-posted">${esc(pa)}</span>`:""}</div>
+        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span>${pa?`<span>·</span><span class="d-posted">${esc(pa)}</span>`:""}${salaryText(j)?`<span>·</span><span class="d-sal">${esc(salaryText(j))}</span>`:""}</div>
       </div>
       <div class="d-right">
         ${statusControl(j)}

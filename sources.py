@@ -55,10 +55,60 @@ def _clean(text, limit=12000):
     return text[:limit]
 
 
-def _norm(source, company, title, location, url, description, date_posted, ats, token):
-    return {"source": source, "company": company, "title": title, "location": location,
-            "url": url, "description": description, "date_posted": date_posted,
-            "ats": ats, "token": token}
+def _norm(source, company, title, location, url, description, date_posted, ats, token, salary=None):
+    d = {"source": source, "company": company, "title": title, "location": location,
+         "url": url, "description": description, "date_posted": date_posted,
+         "ats": ats, "token": token}
+    if salary:
+        d["salary"] = salary
+    return d
+
+
+def _salary(mn, mx, currency="USD", period="year", estimated=False):
+    """Normalize a pay figure into the dict the UI reads, or None when there is
+    nothing usable. min/max are numbers; period is "year" or "hour"; estimated
+    marks a guess (e.g. an aggregator's predicted pay) the UI can hide or label.
+    Returns None on anything unparseable, so callers can attach it without guarding."""
+    def num(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if f > 0 else None
+    lo, hi = num(mn), num(mx)
+    if lo is None and hi is None:
+        return None
+    if lo is None:
+        lo = hi
+    if hi is None:
+        hi = lo
+    if hi < lo:
+        lo, hi = hi, lo
+    return {"min": lo, "max": hi, "currency": (currency or "USD"),
+            "period": (period or "year"), "estimated": bool(estimated)}
+
+
+def _ashby_salary(comp):
+    """Pull employer-stated pay from an Ashby posting's compensation object. Ashby
+    returns a structured breakdown (compensationTiers -> components); boards that do
+    not publish pay return empty fields, so this returns None then. Reads the Salary
+    component only (ignores equity/bonus). Employer-stated, so never estimated."""
+    if not isinstance(comp, dict):
+        return None
+    for tier in (comp.get("compensationTiers") or []):
+        if not isinstance(tier, dict):
+            continue
+        for c in (tier.get("components") or []):
+            if not isinstance(c, dict):
+                continue
+            if str(c.get("compensationType") or "").lower() == "salary":
+                interval = str(c.get("interval") or "").upper()
+                period = "hour" if "HOUR" in interval else "year"
+                s = _salary(c.get("minValue"), c.get("maxValue"),
+                            c.get("currencyCode") or "USD", period, estimated=False)
+                if s:
+                    return s
+    return None
 
 
 def from_greenhouse(token, company=None):
@@ -86,10 +136,14 @@ def from_lever(token, company=None):
 def from_ashby(token, company=None):
     url = f"https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
     r = requests.get(url, headers=HEADERS, timeout=TIMEOUT); r.raise_for_status()
-    return [_norm("ashby", company or token, j.get("title", ""), j.get("location", ""),
-                  j.get("jobUrl", ""), _clean(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
-                  None, "ashby", token)
-            for j in r.json().get("jobs", [])]
+    out = []
+    for j in r.json().get("jobs", []):
+        out.append(_norm("ashby", company or token, j.get("title", ""), j.get("location", ""),
+                         j.get("jobUrl", ""),
+                         _clean(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
+                         None, "ashby", token,
+                         salary=_ashby_salary(j.get("compensation"))))
+    return out
 
 
 def from_smartrecruiters(token, company=None):
@@ -231,7 +285,9 @@ def from_adzuna(queries=None, country="us", pages=5, per_page=50):
                     "adzuna", (j.get("company") or {}).get("display_name", "") or "Unknown",
                     j.get("title", ""), (j.get("location") or {}).get("display_name", ""),
                     j.get("redirect_url", ""), _clean(j.get("description", "")),
-                    ts, "adzuna", ""))
+                    ts, "adzuna", "",
+                    salary=_salary(j.get("salary_min"), j.get("salary_max"), "USD", "year",
+                                   estimated=str(j.get("salary_is_predicted")) == "1")))
     return out
 
 
@@ -275,10 +331,16 @@ def from_usajobs(queries=None, pages=2, per_page=250):
                             pub.replace("Z", "+00:00")).timestamp())
                     except Exception:
                         ts = None
+                rem = d.get("PositionRemuneration") or []
+                rem0 = rem[0] if rem else {}
+                ival = str(rem0.get("RateIntervalCode") or "").upper()
+                usal = _salary(rem0.get("MinimumRange"), rem0.get("MaximumRange"),
+                               "USD", "hour" if ival in ("PH", "SH") else "year",
+                               estimated=False)
                 out.append(_norm(
                     "usajobs", d.get("OrganizationName", "") or "U.S. Government",
                     d.get("PositionTitle", ""), loc, d.get("PositionURI", ""),
-                    _clean(summary), ts, "", ""))
+                    _clean(summary), ts, "", "", salary=usal))
             if len(items) < per_page:
                 break
     return out
