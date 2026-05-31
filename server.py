@@ -2028,9 +2028,22 @@ async def rank_import(request: Request):
     if not isinstance(rankings, list) or not rankings:
         return {"ok": False, "error": "Couldn't find the JSON list your AI returned. Paste the whole thing."}
 
-    # Map the user's top candidates by id so we can attach company/title/location
-    # to each stored ranking (and reject ids that aren't real jobs for them).
+    # Resolve each pasted ranking's job metadata (company/title/location) by id.
+    # We accept ANY id that is a real job in the pool, not only the user's current
+    # top-N slice. The pool shifts between copying the prompt and pasting the reply,
+    # and a job that was already verified is filtered out of the candidate slice, so
+    # keying only off the live slice would silently drop rankings the AI actually
+    # produced. The candidate slice is the preferred source (already in hand); the
+    # full pool is the fallback. Resolving against the real pool still rejects
+    # fabricated ids, which is what keeps this untrusted input safe, and a stored
+    # ranking only ever overlays THIS user's own feed.
     valid = {j["id"]: j for j in _rank_candidates(user_id, profile, RANK_EXPORT_MAX)}
+    pool_by_id = {}
+    try:
+        for j in _pool_list():
+            pool_by_id[db.job_hash(j)] = j
+    except Exception:
+        pool_by_id = {}
     saved = 0
     skipped = 0
     try:
@@ -2040,14 +2053,14 @@ async def rank_import(request: Request):
             db.ensure_user(conn, user_id)
             for r in rankings[:RANK_IMPORT_MAX]:
                 jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
-                job = valid.get(jid)
+                job = valid.get(jid) or pool_by_id.get(jid)
                 fit = _sanitize_fit(r)
                 if not job or not fit:
                     skipped += 1
                     continue
                 db.save_ranking(conn, user_id, {
-                    "id": jid, "company": job["company"],
-                    "title": job["title"], "location": job["location"],
+                    "id": jid, "company": job.get("company", ""),
+                    "title": job.get("title", ""), "location": job.get("location", ""),
                     "source": "byoai",
                 }, fit, ranked_by="ai_byoai")
                 saved += 1
@@ -2074,5 +2087,5 @@ async def rank_import(request: Request):
         if hits:
             return {"ok": True, "saved": 0, "already": hits,
                     "message": "Those were already saved. Loaded your next batch."}
-        return {"ok": False, "error": "None of those rankings matched your current jobs. Re-copy the prompt and try again."}
+        return {"ok": False, "error": "Couldn't match those to jobs in your pool. Copy a fresh prompt, paste your AI's full reply, and try again."}
     return {"ok": True, "saved": saved, "skipped": skipped}
