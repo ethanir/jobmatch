@@ -55,213 +55,10 @@ def _clean(text, limit=12000):
     return text[:limit]
 
 
-# --- salary parsed from description text (pay-transparency disclosures) ----------
-# A growing share of postings state a pay range in the body (CA, CO, NY, WA, and other
-# pay-transparency laws). We already keep the full text, so we read a range out of it for
-# free, with no model call. Deliberately conservative: ranges only, a salary/pay context
-# word must sit nearby, and anything near bonus/equity/referral wording is rejected, so a
-# sign-on bonus never reads as a salary. Off-switch: env PARSE_SALARY_FROM_TEXT=off.
-PARSE_SALARY_FROM_TEXT = os.environ.get(
-    "PARSE_SALARY_FROM_TEXT", "on").strip().lower() in ("1", "true", "on", "yes")
-
-# Dollar range, e.g. "$120,000 - $160,000", "$120K-$160K", "$58.50 to $72/hour". The
-# separator class includes the unicode dashes real postings use, written as escapes so
-# this file stays ASCII.
-_PAY_RANGE = re.compile(
-    r"\$\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?\s?(?:-|to|\u2013|\u2014|\u2212)\s?\$?\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?")
-# A salary/pay word must appear near the match, or we skip it.
-_PAY_CTX = re.compile(
-    r"(salary|base pay|base salary|pay range|compensation|annual|annually|per\s+year|/\s?yr|/\s?year|per\s+hour|hourly|/\s?hr|/\s?hour|an?\s+hour)", re.I)
-# If any of these sit near the match it is not base pay, so skip it.
-_PAY_REJECT = re.compile(
-    r"(bonus|sign[\s-]?on|referral|equity|stock|401|relocation|tuition|commission|per\s+diem|stipend|budget|revenue|grant|funding|portfolio|damages)", re.I)
-_PAY_HOURLY = re.compile(r"(per\s+hour|hourly|/\s?hr|/\s?hour|an?\s+hour)", re.I)
-
-
-def _salary_from_text(text):
-    """Read a salary range out of a job description, or None when there is no clear one.
-    Ranges only; a salary/pay context word must sit within ~80 chars; matches near bonus,
-    equity, or referral wording are skipped so a sign-on amount never reads as pay."""
-    if not text or len(text) < 10:
-        return None
-    try:
-        for m in _PAY_RANGE.finditer(text):
-            lead = text[max(0, m.start() - 25): m.start()]
-            tail = text[m.end(): m.end() + 12]
-            if _PAY_REJECT.search(lead) or _PAY_REJECT.search(tail):
-                continue
-            ctx = text[max(0, m.start() - 80): m.end() + 80]
-            if not _PAY_CTX.search(ctx):
-                continue
-            lo = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
-            hi = float(m.group(3).replace(",", "")) * (1000 if m.group(4) else 1)
-            if _PAY_HOURLY.search(ctx):
-                if not (5 <= lo <= 500 and 5 <= hi <= 500):
-                    continue
-                period = "hour"
-            else:
-                if not (10000 <= lo <= 5000000 and 10000 <= hi <= 5000000):
-                    continue
-                period = "year"
-            return _salary(lo, hi, "USD", period, estimated=False)
-    except Exception:
-        return None
-    return None
-
-
-# --- normalizers for salary/dates an AI returns from a posting -------------------
-# Both the owner ranker (rank.py) and the bring-your-own-AI import (server.py) read
-# salary and dates out of the description the model is already given. These bound and
-# validate that output so a malformed or hallucinated value is dropped, not shown.
-def salary_from_ai(v):
-    """Normalize a salary an AI returned (a {min,max,period[,currency]} dict, or a
-    text range) into the salary dict the UI reads, or None. Bounds-checked, so a
-    nonsense or out-of-range figure is dropped. From the posting text, never estimated."""
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return _salary_from_text(v)
-    if not isinstance(v, dict):
-        return None
-    period = str(v.get("period") or "year").lower()
-    period = "hour" if ("hour" in period or period == "hr") else "year"
-    s = _salary(v.get("min"), v.get("max"), v.get("currency") or "USD", period, estimated=False)
-    if not s:
-        return None
-    lo, hi = s["min"], s["max"]
-    if s["period"] == "hour":
-        if not (5 <= lo <= 500 and 5 <= hi <= 500):
-            return None
-    elif not (10000 <= lo <= 5000000 and 10000 <= hi <= 5000000):
-        return None
-    return s
-
-
-def ai_posted_ts(s):
-    """An ISO date (YYYY-MM-DD) an AI read from a posting to epoch seconds, or None.
-    Used to fill a posting-age label only when the source itself gave no date."""
-    if not isinstance(s, str):
-        return None
-    try:
-        import datetime
-        d = datetime.datetime.strptime(s.strip()[:10], "%Y-%m-%d")
-        return int(d.replace(tzinfo=datetime.timezone.utc).timestamp())
-    except Exception:
-        return None
-
-
-def ai_close_date(s):
-    """Validate an ISO close/deadline date (YYYY-MM-DD) an AI read, returning it
-    unchanged or None. Kept as a short string for compact display."""
-    if not isinstance(s, str):
-        return None
-    try:
-        import datetime
-        v = s.strip()[:10]
-        datetime.datetime.strptime(v, "%Y-%m-%d")
-        return v
-    except Exception:
-        return None
-
-
-def _norm(source, company, title, location, url, description, date_posted, ats, token, salary=None):
-    d = {"source": source, "company": company, "title": title, "location": location,
-         "url": url, "description": description, "date_posted": date_posted,
-         "ats": ats, "token": token}
-    if salary:
-        d["salary"] = salary
-    elif description and PARSE_SALARY_FROM_TEXT:
-        s = _salary_from_text(description)
-        if s:
-            d["salary"] = s
-    return d
-
-
-def _salary(mn, mx, currency="USD", period="year", estimated=False):
-    """Normalize a pay figure into the dict the UI reads, or None when there is
-    nothing usable. min/max are numbers; period is "year" or "hour"; estimated
-    marks a guess (e.g. an aggregator's predicted pay) the UI can hide or label.
-    Returns None on anything unparseable, so callers can attach it without guarding."""
-    def num(v):
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return None
-        return f if f > 0 else None
-    lo, hi = num(mn), num(mx)
-    if lo is None and hi is None:
-        return None
-    if lo is None:
-        lo = hi
-    if hi is None:
-        hi = lo
-    if hi < lo:
-        lo, hi = hi, lo
-    return {"min": lo, "max": hi, "currency": (currency or "USD"),
-            "period": (period or "year"), "estimated": bool(estimated)}
-
-
-def _salary_from_comp_summary(s):
-    """Parse an Ashby compensation summary string into a salary dict, or None.
-    Examples: '$75K - $125K \u2022 Offers Equity', 'Estimated Base Range $90K - $120K',
-    '$160,000 - $175,000'. This is a dedicated employer comp field, so it is parsed
-    directly; anything after a bullet (equity/bonus) is dropped first. Bounds-checked."""
-    if not isinstance(s, str) or not s.strip():
-        return None
-    head = re.split(r"[\u2022\u00b7]", s)[0]            # drop "\u2022 Offers Equity" etc.
-    low = head.lower()
-    period = "hour" if ("/hr" in low or "/ hr" in low or "hour" in low or "hourly" in low) else "year"
-    cleaned = re.sub(r"(?i)\s*(?:/\s?(?:hr|hour|yr|year)|per\s+(?:hour|year)|usd|annually|annual)\b", " ", head)
-    m = re.search(
-        r"\$\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?\s*(?:-|\u2013|\u2014|to)\s*\$?\s?(\d[\d,]*(?:\.\d+)?)\s?([kK])?",
-        cleaned)
-    if not m:
-        return None
-
-    def _v(num, k):
-        n = float(num.replace(",", ""))
-        return n * 1000 if (k and k.lower() == "k") else n
-
-    out = _salary(_v(m.group(1), m.group(2)), _v(m.group(3), m.group(4)), "USD", period, estimated=False)
-    if not out:
-        return None
-    lo, hi = out["min"], out["max"]
-    if out["period"] == "hour":
-        if not (5 <= lo <= 500 and 5 <= hi <= 500):
-            return None
-    elif not (10000 <= lo <= 5000000 and 10000 <= hi <= 5000000):
-        return None
-    return out
-
-
-def _ashby_salary(comp):
-    """Pull employer-stated pay from an Ashby posting's compensation object. Ashby
-    returns a structured breakdown (compensationTiers -> components); boards that do
-    not publish pay return empty fields, so this returns None then. Reads the Salary
-    component only (ignores equity/bonus). Employer-stated, so never estimated."""
-    if not isinstance(comp, dict):
-        return None
-    for tier in (comp.get("compensationTiers") or []):
-        if not isinstance(tier, dict):
-            continue
-        for c in (tier.get("components") or []):
-            if not isinstance(c, dict):
-                continue
-            if str(c.get("compensationType") or "").lower() == "salary":
-                interval = str(c.get("interval") or "").upper()
-                period = "hour" if "HOUR" in interval else "year"
-                s = _salary(c.get("minValue"), c.get("maxValue"),
-                            c.get("currencyCode") or "USD", period, estimated=False)
-                if s:
-                    return s
-    # Fall back to Ashby's own summary strings, which many boards populate even when the
-    # granular compensationTiers are not exposed. scrapeable... is the clean salary-only
-    # field; the display summary (may carry "\u2022 Offers Equity") is the backup.
-    for key in ("scrapeableCompensationSalarySummary", "compensationTierSummary"):
-        s = _salary_from_comp_summary(comp.get(key))
-        if s:
-            return s
-    return None
+def _norm(source, company, title, location, url, description, date_posted, ats, token):
+    return {"source": source, "company": company, "title": title, "location": location,
+            "url": url, "description": description, "date_posted": date_posted,
+            "ats": ats, "token": token}
 
 
 def from_greenhouse(token, company=None):
@@ -289,14 +86,10 @@ def from_lever(token, company=None):
 def from_ashby(token, company=None):
     url = f"https://api.ashbyhq.com/posting-api/job-board/{token}?includeCompensation=true"
     r = requests.get(url, headers=HEADERS, timeout=TIMEOUT); r.raise_for_status()
-    out = []
-    for j in r.json().get("jobs", []):
-        out.append(_norm("ashby", company or token, j.get("title", ""), j.get("location", ""),
-                         j.get("jobUrl", ""),
-                         _clean(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
-                         None, "ashby", token,
-                         salary=_ashby_salary(j.get("compensation"))))
-    return out
+    return [_norm("ashby", company or token, j.get("title", ""), j.get("location", ""),
+                  j.get("jobUrl", ""), _clean(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
+                  None, "ashby", token)
+            for j in r.json().get("jobs", [])]
 
 
 def from_smartrecruiters(token, company=None):
@@ -438,9 +231,7 @@ def from_adzuna(queries=None, country="us", pages=5, per_page=50):
                     "adzuna", (j.get("company") or {}).get("display_name", "") or "Unknown",
                     j.get("title", ""), (j.get("location") or {}).get("display_name", ""),
                     j.get("redirect_url", ""), _clean(j.get("description", "")),
-                    ts, "adzuna", "",
-                    salary=_salary(j.get("salary_min"), j.get("salary_max"), "USD", "year",
-                                   estimated=str(j.get("salary_is_predicted")) == "1")))
+                    ts, "adzuna", ""))
     return out
 
 
@@ -484,16 +275,10 @@ def from_usajobs(queries=None, pages=2, per_page=250):
                             pub.replace("Z", "+00:00")).timestamp())
                     except Exception:
                         ts = None
-                rem = d.get("PositionRemuneration") or []
-                rem0 = rem[0] if rem else {}
-                ival = str(rem0.get("RateIntervalCode") or "").upper()
-                usal = _salary(rem0.get("MinimumRange"), rem0.get("MaximumRange"),
-                               "USD", "hour" if ival in ("PH", "SH") else "year",
-                               estimated=False)
                 out.append(_norm(
                     "usajobs", d.get("OrganizationName", "") or "U.S. Government",
                     d.get("PositionTitle", ""), loc, d.get("PositionURI", ""),
-                    _clean(summary), ts, "", "", salary=usal))
+                    _clean(summary), ts, "", ""))
             if len(items) < per_page:
                 break
     return out
