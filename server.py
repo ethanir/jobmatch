@@ -2314,27 +2314,61 @@ async def rank_auto(request: Request):
     if not cands:
         return {"ok": False, "error": "No matches to rank yet. Build out your profile and try again."}
 
-    # Call the model once with the same prompt the BYO flow uses.
-    prompt = _build_rank_prompt(profile, cands)
+    # Rank in small CHUNKS rather than one big call. A single 60-job request needs
+    # thousands of output tokens, and if the reply is truncated the whole JSON fails
+    # to parse and nothing saves. Chunking keeps each reply small and lets partial
+    # success stand: if one chunk fails, the others still save.
+    import anthropic
     try:
-        import anthropic
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        msg = client.messages.create(
-            model=AUTO_RANK_MODEL,
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(getattr(b, "text", "") for b in msg.content
-                        if getattr(b, "type", "") == "text")
     except Exception:
+        return {"ok": False, "error": "Automatic ranking isn't available right now. You can rank with your own AI for free."}
+
+    CHUNK = 12
+    saved = 0
+    any_call_ok = False
+    by_id = {j["id"]: j for j in cands}
+    for start in range(0, len(cands), CHUNK):
+        batch = cands[start:start + CHUNK]
+        prompt = _build_rank_prompt(profile, batch)
+        try:
+            msg = client.messages.create(
+                model=AUTO_RANK_MODEL,
+                max_tokens=2000,                 # ample for ~12 compact objects
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "".join(getattr(b, "text", "") for b in msg.content
+                            if getattr(b, "type", "") == "text")
+        except Exception:
+            continue                              # skip this chunk, keep going
+        rankings = _extract_json_array(text)
+        if not isinstance(rankings, list) or not rankings:
+            continue
+        any_call_ok = True
+        try:
+            with db.get_conn() as conn:
+                if not conn:
+                    break
+                db.ensure_user(conn, user_id)
+                for r in rankings:
+                    jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
+                    job = by_id.get(jid)
+                    fit = _sanitize_fit(r)
+                    if not job or not fit:
+                        continue
+                    db.save_ranking(conn, user_id, {
+                        "id": jid, "company": job.get("company", ""),
+                        "title": job.get("title", ""), "location": job.get("location", ""),
+                        "source": "ai",
+                    }, fit, ranked_by="ai_paid")
+                    saved += 1
+        except Exception:
+            continue
+
+    if not any_call_ok:
         return {"ok": False, "error": "The ranking service is busy right now. Try again in a moment, or rank with your own AI for free."}
 
-    rankings = _extract_json_array(text)
-    if not isinstance(rankings, list) or not rankings:
-        return {"ok": False, "error": "Ranking didn't come back cleanly. Try again in a moment."}
-
-    # Record the spend against the cap as soon as the paid call succeeded, before
-    # storing, so the ceiling holds even if storage then hiccups.
+    # Charge the cap once per successful run (not per chunk), after we know it worked.
     try:
         with db.get_conn() as conn:
             if conn:
@@ -2343,28 +2377,6 @@ async def rank_auto(request: Request):
     except Exception:
         pass
 
-    by_id = {j["id"]: j for j in cands}
-    saved = 0
-    try:
-        with db.get_conn() as conn:
-            if not conn:
-                return {"ok": False, "error": "Couldn't reach the database. Try again."}
-            db.ensure_user(conn, user_id)
-            for r in rankings[:RANK_IMPORT_MAX]:
-                jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
-                job = by_id.get(jid)
-                fit = _sanitize_fit(r)
-                if not job or not fit:
-                    continue
-                db.save_ranking(conn, user_id, {
-                    "id": jid, "company": job.get("company", ""),
-                    "title": job.get("title", ""), "location": job.get("location", ""),
-                    "source": "ai",
-                }, fit, ranked_by="ai_paid")
-                saved += 1
-    except Exception:
-        if saved == 0:
-            return {"ok": False, "error": "Ranked your matches but couldn't save them. Try again."}
     if saved == 0:
         return {"ok": False, "error": "Ranking didn't match any of your current roles. Try again in a moment."}
     return {"ok": True, "saved": saved}
