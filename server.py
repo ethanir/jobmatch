@@ -789,6 +789,7 @@ def _visitor_feed(user_id, profile, tier):
             "is_new": j["is_new"],
             "first_seen": j.get("first_seen", "") or "",
             "date_posted": j.get("date_posted"),
+            "salary": j.get("salary"),
             "status": statusmap.get(jid, ""),
         }))
     order = {"strong": 0, "possible": 1, "skip": 2}
