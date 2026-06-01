@@ -105,7 +105,7 @@
   .lg.new b{color:var(--amber)}
   /* layout */
   main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(420px,1.25fr);gap:26px;padding:26px 0 60px;align-items:start}
-  @media(max-width:880px){main{grid-template-columns:1fr}.detail{position:static;max-height:none;overflow:visible}}
+  @media(max-width:880px){main{grid-template-columns:1fr}#detailWrap{height:auto;align-self:auto}.detail{position:static;max-height:none;overflow:visible}}
   @media(max-width:560px){.wrap{padding:0 16px}}
   .filters{display:flex;gap:9px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .filters::-webkit-scrollbar{display:none}
@@ -145,6 +145,10 @@
   .vchip.ok{color:var(--green);background:var(--greenbg);border:1px solid var(--greenln)}
   .vchip.est{color:var(--mut);background:#1b212b;border:1px solid var(--line2)}
   /* detail */
+  /* The right column stretches to the full grid height so the sticky card inside
+     it stays pinned the entire time you scroll a long list, instead of scrolling
+     out of view once the short card's own box leaves the viewport. */
+  #detailWrap{align-self:stretch;height:100%}
   .detail{position:sticky;top:96px;max-height:calc(100vh - 124px);overflow-y:auto;border:1px solid var(--line);border-radius:16px;background:var(--card)}
   .d-head{padding:26px 28px 22px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
   .d-co{font-family:var(--fu);font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
