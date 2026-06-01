@@ -1144,21 +1144,42 @@ def _run_upload(records, profile_path):
         # _pool_list result is treated as read-only elsewhere; copy before merge.
         merged, summary = pipeline.ingest_uploaded(
             records, list(existing), profile_path=profile_path, progress=progress)
-        # Write the merged pool to the same file refresh writes, then persist to DB.
+
+        # Persist the merged pool. This is the step that actually makes the upload
+        # "stick", so a failure here must surface as an error (not a false Done) and
+        # must not leave the file and DB disagreeing. Write the file first (cheap,
+        # durable on this box), then the DB; if the DB write fails, say so.
+        progress("Saving", 95, f"{len(merged)} roles")
         try:
             with open(RANKED_FILE, "w") as f:
                 json.dump(merged, f)
-        except Exception:
-            pass
+        except Exception as fe:
+            raise RuntimeError("could not write the merged pool to disk: %s" % fe)
+
+        db_saved = False
         if db.has_db():
             try:
                 with db.get_conn() as conn:
                     if conn:
                         db.save_pool(conn, merged)
-            except Exception:
-                pass
+                        db_saved = True
+            except Exception as de:
+                # Surface it: the feed reads the DB first, so a silent DB failure is
+                # exactly the "nothing changed" bug. Report it instead of hiding it.
+                raise RuntimeError("saved to disk but the database save failed: %s" % de)
+
+        # Bust the caches the feed and the counters read, so the new jobs, salary,
+        # and the updated time all show without a manual reload.
         with _POOL_LOCK:
             _POOL_CACHE.update(src=None, token=None, data=None)
+        with _BASE_LOCK:
+            _BASE_CACHE.clear()
+        with _STATS_LOCK:
+            _STATS_CACHE["data"] = None
+            _STATS_CACHE["at"] = 0.0
+        with _COV_LOCK:
+            _COV_CACHE.update(data=None, token=None, ts=0.0)
+        summary["db_saved"] = db_saved
         with _refresh_lock:
             _refresh.update(running=False, stage="Done", pct=100,
                             finished_at=time.time(), result=summary)

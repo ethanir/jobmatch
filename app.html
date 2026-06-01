@@ -1162,15 +1162,18 @@ async function pollUpload(){
     setTimeout(pollUpload, 1500); return;
   }
   if(s.stage==="Error" || s.error){
-    toast("Upload failed"); setUploadUI(false); REFRESHING=false; return;
+    toast(s.error ? ("Upload failed: "+s.error) : "Upload failed");
+    setUploadUI(false); REFRESHING=false; return;
   }
   if(s.stage==="Done" || REFRESH_SAW_RUN){
     setUploadUI(false); REFRESHING=false;
     const r=s.result||{};
     await fetchSchedule(); await loadJobs();
+    if(window.refreshHeaderStats) try{ window.refreshHeaderStats(); }catch(_){ }
     if(typeof r.added==="number"){
       const dupes=(r.already_in_pool||0)+(r.batch_duplicates||0);
-      toast("Added "+r.added+" jobs"+(dupes?(", "+dupes+" duplicates skipped"):"")+" \u2713");
+      const enr=r.enriched?(", "+r.enriched+" updated with new details"):"";
+      toast("Added "+r.added+" jobs"+(dupes?(", "+dupes+" duplicates skipped"):"")+enr+" \u2713");
     }else{ toast("Jobs updated \u2713"); }
     return;
   }
@@ -1219,6 +1222,7 @@ if(/[?&]upgraded=1/.test(location.search)){
   }
   load();
   setInterval(load, 60000);
+  window.refreshHeaderStats = load;
 })();
 </script>
 </body>
