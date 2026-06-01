@@ -1125,12 +1125,14 @@ async function pollRefresh(){
     setTimeout(pollRefresh, 2000); return;
   }
   if(s.stage==="Error" || s.error){
-    toast("Refresh failed"); setRefreshUI(false); REFRESHING=false; return;
+    toast(s.error ? ("Refresh failed: "+s.error) : "Refresh failed", {sticky:true});
+    setRefreshUI(false); REFRESHING=false; return;
   }
   if(s.stage==="Done" || REFRESH_SAW_RUN){
     setRefreshUI(false); REFRESHING=false;
     await fetchSchedule(); await loadJobs();
-    toast("Jobs updated \u2713"); return;
+    if(window.refreshHeaderStats) try{ window.refreshHeaderStats(); }catch(_){ }
+    toast("Jobs updated \u2713", {ms:4000}); return;
   }
   // Not flipped to running yet (worker spinning up): wait briefly, then give up.
   if(REFRESH_WAIT++ < 6){ setTimeout(pollRefresh, 1200); return; }
@@ -1184,8 +1186,8 @@ async function pollUpload(){
     if(typeof r.added==="number"){
       const dupes=(r.already_in_pool||0)+(r.batch_duplicates||0);
       const enr=r.enriched?(", "+r.enriched+" updated with new details"):"";
-      toast("Added "+r.added+" jobs"+(dupes?(", "+dupes+" duplicates skipped"):"")+enr+" \u2713");
-    }else{ toast("Jobs updated \u2713"); }
+      toast("Added "+r.added+" jobs"+(dupes?(", "+dupes+" duplicates skipped"):"")+enr+" \u2713", {ms:5000});
+    }else{ toast("Jobs updated \u2713", {ms:4000}); }
     return;
   }
   if(REFRESH_WAIT++ < 6){ setTimeout(pollUpload, 1200); return; }
