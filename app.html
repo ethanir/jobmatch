@@ -111,9 +111,22 @@
   .filters::-webkit-scrollbar{display:none}
   .toolbar{display:flex;flex-direction:column;gap:11px;margin-bottom:16px}
   .toolbar .filters{margin-bottom:0}
-  .searchbox{position:relative;width:100%}
-  .sortsel{appearance:none;-webkit-appearance:none;width:100%;font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2);background:var(--card) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237e8a96' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>") no-repeat right 12px center;border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 13px;cursor:pointer}
-  .sortsel:hover{border-color:var(--green)}
+  .searchbox{position:relative;flex:1;min-width:0}
+  .toolrow{display:flex;gap:9px;align-items:stretch}
+  /* custom sort dropdown, styled to match the app instead of the OS popup */
+  .sortdd{position:relative;flex:0 0 auto}
+  .sortbtn{display:flex;align-items:center;gap:7px;height:100%;font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2);background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:0 12px;cursor:pointer;white-space:nowrap;transition:border-color .15s,color .15s}
+  .sortbtn:hover{border-color:var(--green);color:var(--ink)}
+  .sortbtn .sortcaret{transition:transform .18s;color:var(--mut)}
+  .sortdd.open .sortbtn{border-color:var(--green);color:var(--ink)}
+  .sortdd.open .sortcaret{transform:rotate(180deg)}
+  .sortmenu{position:absolute;top:calc(100% + 6px);right:0;min-width:170px;background:var(--card);border:1px solid var(--line2);border-radius:12px;padding:5px;box-shadow:0 12px 30px rgba(0,0,0,.45);opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .16s,transform .16s;z-index:30}
+  .sortdd.open .sortmenu{opacity:1;transform:translateY(0);pointer-events:auto}
+  .sortopt{display:flex;align-items:center;gap:9px;width:100%;text-align:left;font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2);background:none;border:none;border-radius:8px;padding:9px 11px;cursor:pointer;transition:background .12s,color .12s}
+  .sortopt:hover{background:#1b212b;color:var(--ink)}
+  .sortopt.sel{color:var(--green)}
+  .sortopt .so-check{width:14px;height:14px;flex:0 0 auto;opacity:0}
+  .sortopt.sel .so-check{opacity:1}
   .searchbox svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none}
   .searchbox input{width:100%;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 34px;color:var(--ink);font-family:var(--fu);font-size:13.5px;outline:none;transition:border-color .15s}
   .searchbox input:focus{border-color:var(--greenln)}
@@ -387,16 +400,21 @@
     <div id="rankBannerWrap"></div>
     <div class="toolbar">
       <div class="filters" id="filters"></div>
-      <div class="searchbox">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7e8a96" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
-        <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
+      <div class="toolrow">
+        <div class="searchbox">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7e8a96" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
+          <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
+        </div>
+        <div class="sortdd" id="sortDD">
+          <button class="sortbtn" id="sortBtn" onclick="toggleSort(event)" aria-haspopup="true" aria-expanded="false" title="Sort the list">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h12"/><path d="M3 12h9"/><path d="M3 18h6"/><path d="M17 8l4-4 4 4" transform="translate(-4,0)"/></svg>
+            <span id="sortLabel">Best match</span>
+            <svg class="sortcaret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="sortmenu" id="sortMenu" role="menu"></div>
+        </div>
       </div>
-      <select id="sortSel" class="sortsel" onchange="setSort(this.value)" title="Sort the list">
-        <option value="best">Best match</option>
-        <option value="recent">Most recent</option>
-        <option value="pay">Highest pay</option>
-      </select>
     </div>
     <div class="list" id="list"></div>
   </section>
@@ -1019,7 +1037,37 @@ function select(id){
 // up to the job list. On desktop the button is hidden, so this is never reached.
 function backToList(){ window.scrollTo({top:0,behavior:"smooth"}); }
 function setFilter(f){FILTER=f;SELECTED=null;PAGE=1;render();}
-function setSort(s){ SORT=s; SELECTED=null; PAGE=1; render(); }
+const SORT_OPTS = [["best","Best match"],["recent","Most recent"],["pay","Highest pay"]];
+function renderSortMenu(){
+  const menu=document.getElementById("sortMenu"); if(!menu) return;
+  const check='<svg class="so-check" viewBox="0 0 24 24" fill="none" stroke="#4fe39b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  menu.innerHTML = SORT_OPTS.map(([k,label])=>
+    '<button class="sortopt '+(SORT===k?'sel':'')+'" role="menuitem" onclick="pickSort(\''+k+'\')">'+check+'<span>'+label+'</span></button>'
+  ).join("");
+  const lbl=document.getElementById("sortLabel");
+  if(lbl) lbl.textContent = (SORT_OPTS.find(o=>o[0]===SORT)||SORT_OPTS[0])[1];
+}
+function toggleSort(e){
+  if(e) e.stopPropagation();
+  const dd=document.getElementById("sortDD"); if(!dd) return;
+  const open=dd.classList.toggle("open");
+  document.getElementById("sortBtn")?.setAttribute("aria-expanded", open?"true":"false");
+  if(open) renderSortMenu();
+}
+function closeSort(){
+  const dd=document.getElementById("sortDD");
+  if(dd && dd.classList.contains("open")){
+    dd.classList.remove("open");
+    document.getElementById("sortBtn")?.setAttribute("aria-expanded","false");
+  }
+}
+function pickSort(s){
+  SORT=s; SELECTED=null; PAGE=1;
+  closeSort(); renderSortMenu(); render();
+}
+// close the sort menu on any outside click or Escape
+document.addEventListener("click", (e)=>{ const dd=document.getElementById("sortDD"); if(dd && !dd.contains(e.target)) closeSort(); });
+document.addEventListener("keydown", (e)=>{ if(e.key==="Escape") closeSort(); });
 
 /* Sort comparator for the list. "best" keeps the server order (tier then score).
    "recent" is newest first by posted date then first-seen. "pay" is highest
@@ -1226,6 +1274,7 @@ fetchSchedule();
 loadMe();
 loadJobs();
 checkUnlocked();
+renderSortMenu();
 // Returned from Stripe checkout: confirm the upgrade landed, then clean the URL.
 if(/[?&]upgraded=1/.test(location.search)){
   try{ history.replaceState({}, "", location.pathname); }catch(e){}
