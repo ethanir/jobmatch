@@ -130,6 +130,14 @@ CREATE TABLE IF NOT EXISTS pool (
     CONSTRAINT pool_single_row CHECK (id = 1)
 );
 
+-- The pool JSON is stored split across rows here (<=5 MB each) so no single
+-- stored value approaches Postgres's 1 GB per-field limit. pool.data is kept as
+-- the small meta/freshness row (n + updated_at); the blob lives in these chunks.
+CREATE TABLE IF NOT EXISTS pool_chunks (
+    seq   INTEGER PRIMARY KEY,
+    data  TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS job_status (
     user_id     TEXT        NOT NULL,
     job_id      TEXT        NOT NULL,
@@ -637,36 +645,46 @@ def increment_usage(conn, user_id: str, month: str,
 # is one row holding the same JSON the feed already parses, plus a count and a
 # timestamp the read path uses as a cheap cache-freshness check.
 def save_pool(conn, jobs: list) -> None:
-    """Persist the whole ranked pool as one row (id=1). `jobs` is the parsed
-    list exactly as written to ranked_jobs.json.
-
-    The pool can be tens of MB as one JSON value. Some hosted Postgres setups
-    impose a short statement_timeout that a large write can exceed, so we lift
-    the timeout for this one transaction. Any real failure is allowed to raise so
-    callers that must know (the upload) can report it; callers that prefer
-    best-effort (the periodic refresh persist) wrap their own call in try/except."""
+    """Persist the whole ranked pool, split across many rows so no single stored
+    value can approach Postgres's 1 GB per-field hard limit (the pool as one JSON
+    value outgrew that). The JSON is chunked into <=5 MB pieces in `pool_chunks`,
+    and a single `pool` meta row records the count + timestamp for cheap freshness
+    probes. Writing is transactional: the whole set replaces atomically, so a
+    reader never sees a half-written pool. Any real failure raises so the upload
+    can report it; best-effort callers wrap their own call in try/except."""
     if not conn or jobs is None:
         return
     payload = json.dumps(jobs)
+    CHUNK = 5_000_000                      # 5 MB per row, far under the 1 GB cap
+    parts = [payload[i:i + CHUNK] for i in range(0, len(payload), CHUNK)] or [""]
     with conn.cursor() as cur:
-        # Give a big single-row write room to finish on hosts with a tight default.
         try:
             cur.execute("SET LOCAL statement_timeout = '120s'")
         except Exception:
             pass
+        # meta row: keep the single-row `pool` table as the freshness record, but
+        # stop storing the giant blob in it (set data to empty; the blob lives in
+        # pool_chunks now). n + updated_at keep their meaning for pool_meta().
         cur.execute(
             "INSERT INTO pool (id, data, n, updated_at) VALUES (1, %s, %s, NOW()) "
-            "ON CONFLICT (id) DO UPDATE SET "
-            "  data = EXCLUDED.data, n = EXCLUDED.n, updated_at = NOW()",
-            (payload, len(jobs)),
+            "ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, n = EXCLUDED.n, "
+            "updated_at = NOW()",
+            ("", len(jobs)),
         )
+        # replace all chunks atomically (same transaction as the meta bump)
+        cur.execute("DELETE FROM pool_chunks")
+        for idx, part in enumerate(parts):
+            cur.execute(
+                "INSERT INTO pool_chunks (seq, data) VALUES (%s, %s)",
+                (idx, part),
+            )
     conn.commit()
 
 
 def pool_meta(conn):
     """Cheap freshness probe: (n, updated_at) for the stored pool, or None if
-    none stored. Does NOT fetch the large data column, so it is safe to call on
-    every feed read to decide whether an in-memory cache is stale."""
+    none stored. Reads only the small meta row, never the chunk data, so it is
+    safe to call on every feed read to decide whether an in-memory cache is stale."""
     if not conn:
         return None
     with conn.cursor() as cur:
@@ -678,16 +696,25 @@ def pool_meta(conn):
 
 
 def load_pool(conn):
-    """Return the stored pool as a parsed list, or None if none stored or it
-    cannot be parsed. This is the large read; callers cache it."""
+    """Return the stored pool as a parsed list, or None if none stored / unparseable.
+    Reassembles the chunked rows (pool_chunks); falls back to the legacy single-row
+    `pool.data` blob if a pre-chunk pool is still stored there. The large read;
+    callers cache it."""
     if not conn:
         return None
     with conn.cursor() as cur:
-        cur.execute("SELECT data FROM pool WHERE id = 1")
-        row = cur.fetchone()
-    if not row or not row.get("data"):
+        cur.execute("SELECT data FROM pool_chunks ORDER BY seq ASC")
+        rows = cur.fetchall()
+        if rows:
+            payload = "".join(r["data"] or "" for r in rows)
+        else:
+            # Legacy path: a pool written before chunking still lives in pool.data.
+            cur.execute("SELECT data FROM pool WHERE id = 1")
+            row = cur.fetchone()
+            payload = (row and row.get("data")) or ""
+    if not payload:
         return None
     try:
-        return json.loads(row["data"])
+        return json.loads(payload)
     except Exception:
         return None
