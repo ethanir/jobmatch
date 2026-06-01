@@ -225,6 +225,8 @@
   .loadmore b{color:var(--mut);font-weight:600}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:#1b212b;color:var(--ink);border:1px solid var(--line2);font-family:var(--fu);font-size:13.5px;padding:11px 18px;border-radius:10px;transition:.25s;pointer-events:none;z-index:50}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.sticky{pointer-events:auto;cursor:pointer;border-color:#e06b6b;color:#ffd9d9;max-width:min(560px,90vw);white-space:normal;line-height:1.45;text-align:center}
+  .toast.sticky::after{content:"  (tap to dismiss)";color:#9a8a8a;font-size:11px}
   /* unlock modal */
   .modal-bg{position:fixed;inset:0;background:rgba(6,8,11,.78);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
   .modal-bg.show{display:flex;animation:fade .2s ease}
@@ -456,7 +458,16 @@ const POLL_MS = 2500, POLL_MAX = 80;   // ceiling ~3.5 min, then we stop quietly
 // Billing / plan state, populated by loadMe() from /api/auth/me.
 let IS_PRO = false, PLAN_NAME = "Pro", PRICE = "$1.99";
 
-function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
+function toast(msg, opts){
+  const t=document.getElementById("toast");
+  t.textContent=msg;
+  t.classList.add("show");
+  if(t._timer){ clearTimeout(t._timer); t._timer=null; }
+  const sticky = opts && opts.sticky;
+  t.classList.toggle("sticky", !!sticky);
+  t.onclick = ()=>{ t.classList.remove("show"); };
+  if(!sticky){ t._timer=setTimeout(()=>t.classList.remove("show"), (opts&&opts.ms)||1800); }
+}
 function copy(text){navigator.clipboard?.writeText(text);return true;}
 
 /* A job is "verified" only if the AI actually read it. The free heuristic tags
@@ -1162,7 +1173,7 @@ async function pollUpload(){
     setTimeout(pollUpload, 1500); return;
   }
   if(s.stage==="Error" || s.error){
-    toast(s.error ? ("Upload failed: "+s.error) : "Upload failed");
+    toast(s.error ? ("Upload failed: "+s.error) : "Upload failed", {sticky:true});
     setUploadUI(false); REFRESHING=false; return;
   }
   if(s.stage==="Done" || REFRESH_SAW_RUN){

@@ -638,11 +638,22 @@ def increment_usage(conn, user_id: str, month: str,
 # timestamp the read path uses as a cheap cache-freshness check.
 def save_pool(conn, jobs: list) -> None:
     """Persist the whole ranked pool as one row (id=1). `jobs` is the parsed
-    list exactly as written to ranked_jobs.json."""
+    list exactly as written to ranked_jobs.json.
+
+    The pool can be tens of MB as one JSON value. Some hosted Postgres setups
+    impose a short statement_timeout that a large write can exceed, so we lift
+    the timeout for this one transaction. Any real failure is allowed to raise so
+    callers that must know (the upload) can report it; callers that prefer
+    best-effort (the periodic refresh persist) wrap their own call in try/except."""
     if not conn or jobs is None:
         return
     payload = json.dumps(jobs)
     with conn.cursor() as cur:
+        # Give a big single-row write room to finish on hosts with a tight default.
+        try:
+            cur.execute("SET LOCAL statement_timeout = '120s'")
+        except Exception:
+            pass
         cur.execute(
             "INSERT INTO pool (id, data, n, updated_at) VALUES (1, %s, %s, NOW()) "
             "ON CONFLICT (id) DO UPDATE SET "
