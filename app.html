@@ -260,6 +260,11 @@
   .modal-btn{width:100%;margin-top:12px;font-family:var(--fu);font-size:15px;font-weight:700;border:none;border-radius:12px;padding:13px;cursor:pointer;background:var(--green);color:#08120c;transition:opacity .15s}
   .modal-btn:hover{opacity:.9}
   .modal-msg{font-family:var(--fu);font-size:13px;font-weight:600;margin-top:14px;min-height:16px;color:#e3804f}
+  .autorank{margin:4px 0 2px}
+  .autorank #autoRankBtn{margin-top:4px}
+  .autorank-note{font-family:var(--fu);font-size:12px;color:var(--mut);margin-top:8px;line-height:1.45;text-align:center}
+  .autorank-or{display:flex;align-items:center;gap:12px;margin:18px 0 4px;color:var(--mut);font-family:var(--fu);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .autorank-or:before,.autorank-or:after{content:"";flex:1;height:1px;background:var(--line2)}
   .modal-x{position:absolute;top:14px;right:18px;font-size:22px;color:var(--mut);background:none;border:none;cursor:pointer;line-height:1}
   /* BYO-AI ranking */
   .rankbanner{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line2);border-radius:14px;padding:14px 16px;margin-bottom:16px}
@@ -426,7 +431,12 @@
   <div class="modal wide" style="position:relative">
     <button class="modal-x" onclick="closeRank()" aria-label="close">×</button>
     <h2>Rank my matches</h2>
-    <p>These scores are quick keyword estimates. Have your own ChatGPT or Claude read your top matches in full, free, and the feed updates with real scores.</p>
+    <p>These scores are quick keyword estimates. Have your top matches read in full so the feed shows real fit, not keywords.</p>
+    <div class="autorank" id="autoRankWrap">
+      <button class="modal-btn" id="autoRankBtn" onclick="autoRank()">Rank them for me &middot; one click &rarr;</button>
+      <div class="autorank-note">We read your top matches for you. No copy-paste. Or do it free with your own AI below.</div>
+      <div class="autorank-or"><span>or rank with your own AI, free</span></div>
+    </div>
     <div class="rankdepth" id="rankDepth" role="group" aria-label="Ranking depth">
       <button type="button" class="on" data-depth="broad" onclick="setRankDepth('broad')">Broad</button>
       <button type="button" data-depth="balanced" onclick="setRankDepth('balanced')">Balanced</button>
@@ -769,6 +779,40 @@ function copyRankPrompt(){
   setTimeout(()=>{b.textContent="Copy"; b.classList.remove("done");},1500);
 }
 let RANK_SAVING = false;
+function autoRank(){
+  if(RANK_SAVING) return;
+  const btn=document.getElementById("autoRankBtn");
+  const msg=document.getElementById("rankMsg");
+  RANK_SAVING=true; btn.disabled=true; const label=btn.textContent;
+  btn.textContent="Reading your matches\u2026";
+  msg.className="modal-msg"; msg.textContent="";
+  // Ranking calls a model server-side; give it room but never hang forever.
+  const ctrl=new AbortController();
+  const killer=setTimeout(()=>{ try{ ctrl.abort(); }catch(e){} }, 90000);
+  fetch(API+"/api/rank/auto",{method:"POST",credentials:"same-origin",signal:ctrl.signal})
+    .then(r=>r.json()).then(d=>{
+      clearTimeout(killer);
+      if(d.ok){
+        msg.className="modal-msg ok";
+        msg.textContent="Ranked "+d.saved+" match"+(d.saved===1?"":"es")+". Updating your feed\u2026";
+        RANK_PROMPT="";
+        const remaining=Math.max(0, rankUnverified() - d.saved);
+        setTimeout(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; closeRank(); loadJobs();
+          toast(remaining>0
+            ? ("Ranked "+d.saved+". Click Rank my matches again for more.")
+            : "Your top matches are ranked."); }, 700);
+      }else{
+        RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
+        msg.className="modal-msg"; msg.textContent = d.error || "Couldn't rank automatically. Try your own AI below, free.";
+      }
+    }).catch(()=>{
+      clearTimeout(killer);
+      RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
+      msg.className="modal-msg";
+      msg.textContent="That took too long or the connection dropped. Try again, or use your own AI below.";
+    });
+}
+
 function saveRank(){
   if(RANK_SAVING) return;                 // ignore repeat clicks while a save is in flight
   const raw=document.getElementById("rankIn").value.trim();

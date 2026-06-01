@@ -1768,6 +1768,14 @@ RANK_EXPORT_MAX = 150         # most jobs we ask a web chat to score at once
 RANK_IMPORT_MAX = 300         # hard cap on rankings accepted per import call
 RANK_DESC_CHARS = 1200        # chars of each posting handed to the AI to read
 RANK_ENRICH_CAP = 60          # max thin-desc jobs to backfill per rank (when enabled)
+
+# Automatic (we-call-the-API) ranking caps. These bound cost HARD so a bug or a
+# heavy user can never run up a surprise bill; the BYO paste path stays free and
+# uncapped as the fallback.
+AUTO_RANK_MODEL = "claude-sonnet-4-6"   # best quality-per-dollar for fit ranking
+AUTO_RANK_JOBS = 60                     # jobs scored per automatic run
+AUTO_RANK_MONTHLY_CENTS = 100           # max we will spend per user per month (=$1.00)
+AUTO_RANK_COST_CENTS = 2                # est. cost charged to the cap per run (~$0.02)
 _VALID_TIERS = ("strong", "possible", "skip")
 
 # Depth presets for the bring-your-own-AI rank. The pasted prompt has a roughly
@@ -2247,3 +2255,96 @@ async def rank_import(request: Request):
                     "message": "Those were already saved. Loaded your next batch."}
         return {"ok": False, "error": "Couldn't match those to jobs in your pool. Copy a fresh prompt, paste your AI's full reply, and try again."}
     return {"ok": True, "saved": saved, "skipped": skipped}
+
+
+@app.post("/api/rank/auto")
+async def rank_auto(request: Request):
+    """One-click ranking: WE call the model for the user, so they skip the
+    copy-into-your-own-AI step. Same candidates, same prompt, same validation,
+    and same per-user storage as the BYO path; the only differences are that we
+    make the API call and that a hard per-user monthly spend cap bounds the cost.
+    Pro-gated. The BYO paste path remains the free, uncapped fallback."""
+    if not db.has_db():
+        return {"ok": False, "error": "Automatic ranking needs the database, which is off right now."}
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return {"ok": False, "error": "Automatic ranking isn't available right now. You can still rank with your own AI for free."}
+    user_id = request.state.user_id
+    gate = _pro_gate(request)
+    if gate:
+        return gate
+    profile = _user_profile(user_id)
+    if not profile:
+        return {"ok": False, "error": "Build a profile first, then you can rank your matches."}
+
+    # Hard spend cap: refuse before spending anything once this user has hit the
+    # monthly ceiling. This is the guardrail that makes calling the API on the
+    # user's behalf safe; the BYO paste path is always available with no cap.
+    month = time.strftime("%Y-%m", time.gmtime())
+    try:
+        with db.get_conn() as conn:
+            used = db.get_usage(conn, user_id, month) if conn else {}
+    except Exception:
+        used = {}
+    if (used.get("paid_cents") or 0) >= AUTO_RANK_MONTHLY_CENTS:
+        return {"ok": False, "capped": True,
+                "error": "You've used this month's automatic ranking. It resets next month, or rank with your own AI for free anytime."}
+
+    # The same top candidates the BYO path would hand the user's AI.
+    cands = _rank_candidates(user_id, profile, AUTO_RANK_JOBS)
+    if not cands:
+        return {"ok": False, "error": "No matches to rank yet. Build out your profile and try again."}
+
+    # Call the model once with the same prompt the BYO flow uses.
+    prompt = _build_rank_prompt(profile, cands)
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        msg = client.messages.create(
+            model=AUTO_RANK_MODEL,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in msg.content
+                        if getattr(b, "type", "") == "text")
+    except Exception:
+        return {"ok": False, "error": "The ranking service is busy right now. Try again in a moment, or rank with your own AI for free."}
+
+    rankings = _extract_json_array(text)
+    if not isinstance(rankings, list) or not rankings:
+        return {"ok": False, "error": "Ranking didn't come back cleanly. Try again in a moment."}
+
+    # Record the spend against the cap as soon as the paid call succeeded, before
+    # storing, so the ceiling holds even if storage then hiccups.
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                db.increment_usage(conn, user_id, month,
+                                   ai_calls=1, paid_cents=AUTO_RANK_COST_CENTS)
+    except Exception:
+        pass
+
+    by_id = {j["id"]: j for j in cands}
+    saved = 0
+    try:
+        with db.get_conn() as conn:
+            if not conn:
+                return {"ok": False, "error": "Couldn't reach the database. Try again."}
+            db.ensure_user(conn, user_id)
+            for r in rankings[:RANK_IMPORT_MAX]:
+                jid = str((r or {}).get("id", "")).strip() if isinstance(r, dict) else ""
+                job = by_id.get(jid)
+                fit = _sanitize_fit(r)
+                if not job or not fit:
+                    continue
+                db.save_ranking(conn, user_id, {
+                    "id": jid, "company": job.get("company", ""),
+                    "title": job.get("title", ""), "location": job.get("location", ""),
+                    "source": "ai",
+                }, fit, ranked_by="ai_paid")
+                saved += 1
+    except Exception:
+        if saved == 0:
+            return {"ok": False, "error": "Ranked your matches but couldn't save them. Try again."}
+    if saved == 0:
+        return {"ok": False, "error": "Ranking didn't match any of your current roles. Try again in a moment."}
+    return {"ok": True, "saved": saved}
