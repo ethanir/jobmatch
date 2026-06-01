@@ -275,19 +275,32 @@ def ingest_uploaded(records, existing_pool, profile_path="profile.example.json",
     new_jobs = prefilter.prefilter_generic(new_jobs)
     emit("Prefiltering", 40, f"{len(new_jobs)} survived")
 
-    # 3) de-dupe against the EXISTING pool by our standard identity and by url, so an
-    #    uploaded copy of a job we already have is dropped (existing ranking wins).
+    # 3) de-dupe against the EXISTING pool by our standard identity and by url. An
+    #    uploaded copy of a job we already have is NOT added again (the existing copy,
+    #    and any AI ranking on it, is kept), but we DO enrich that existing copy with
+    #    salary and a posted date from the upload when it was missing them, so the
+    #    data you uploaded shows up without disturbing the ranking or order.
     existing_pool = existing_pool or []
-    have_id = {jobcache.job_id(j) for j in existing_pool}
-    have_url = {(j.get("url") or "") for j in existing_pool if j.get("url")}
-    deduped, n_overlap = [], 0
+    by_id = {jobcache.job_id(j): j for j in existing_pool}
+    by_url = {(j.get("url") or ""): j for j in existing_pool if j.get("url")}
+    deduped, n_overlap, n_enriched = [], 0, 0
     for j in new_jobs:
-        if jobcache.job_id(j) in have_id or (j.get("url") and j.get("url") in have_url):
+        match = by_id.get(jobcache.job_id(j)) or (j.get("url") and by_url.get(j.get("url")))
+        if match:
             n_overlap += 1
+            touched = False
+            if j.get("salary") and not match.get("salary"):
+                match["salary"] = j["salary"]; touched = True
+            jp = j.get("date_posted")
+            if isinstance(jp, (int, float)) and jp and not match.get("date_posted"):
+                match["date_posted"] = jp; touched = True
+            if touched:
+                n_enriched += 1
             continue
         deduped.append(j)
     new_jobs = deduped
-    emit("De-duplicating", 56, f"{n_overlap} already in pool, {len(new_jobs)} truly new")
+    emit("De-duplicating", 56,
+         f"{n_overlap} already in pool ({n_enriched} enriched), {len(new_jobs)} truly new")
 
     # 4) FREE score, identical to run()
     new_jobs = score.rank_free(new_jobs, profile)
@@ -328,6 +341,7 @@ def ingest_uploaded(records, existing_pool, profile_path="profile.example.json",
         "missing_fields": conv["missing_fields"],
         "dropped_prefilter": conv["converted"] - n_overlap - len(new_jobs),
         "already_in_pool": n_overlap,
+        "enriched": n_enriched,
         "added": len(new_jobs),
         "brand_new": n_brand_new,
         "pool_before": len(existing_pool),

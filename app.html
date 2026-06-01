@@ -130,6 +130,7 @@
   .new{display:inline-block;font-family:var(--fu);font-size:10px;font-weight:600;color:var(--green);background:var(--greenbg);border:1px solid var(--greenln);border-radius:5px;padding:1px 6px;margin-left:8px;letter-spacing:.03em}
   .ti{font-family:var(--fd);font-size:20px;font-weight:600;line-height:1.18;margin:5px 0 9px;letter-spacing:-.01em}
   .loc{font-family:var(--fu);font-size:12.5px;color:var(--mut);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .loc .sal,.d-sal{color:var(--green);font-weight:600}
   .dot{width:6px;height:6px;border-radius:99px;background:var(--green);display:inline-block}
   .dot.amber{background:var(--amber)} .dot.grey{background:var(--mut)}
   /* score badge: color reflects how trustworthy the number is */
@@ -801,7 +802,7 @@ function render(){
       <span class="scorebadge ${badgeClass(j)}">${badgeText(j)}</span>
       <div class="co">${esc(j.company)}${j.is_new?'<span class="new">NEW</span>':''}</div>
       <div class="ti">${esc(j.title)}</div>
-      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span>${ageHtml(j)}${j.status?`<span class="stpill st-${j.status}">${statusLabel(j.status)}</span>`:""}</div>
+      <div class="loc"><span class="dot ${dotClass(j)}"></span><span style="text-transform:capitalize">${j.tier} fit</span><span>·</span><span>${esc(j.location||"Location N/A")}</span>${salaryHtml(j)}${ageHtml(j)}${j.status?`<span class="stpill st-${j.status}">${statusLabel(j.status)}</span>`:""}</div>
     </div>`).join("")
     + (rows.length>shown.length
         ? '<button class="loadmore" onclick="showMore()">Show more <b>('+(rows.length-shown.length)+' left)</b></button>'
@@ -867,6 +868,26 @@ function ageHtml(j){
   return t ? ('<span>\u00b7</span><span>' + esc(t) + '</span>') : "";
 }
 
+/* Compact pay label from a structured salary dict, or "" when none. Only shown for
+   roles that actually carry one (uploaded jobs); never invented. "$120K - $150K/yr". */
+function money(n){
+  if(n==null) return "";
+  if(n>=1000){ const k=n/1000; return "$"+(k%1?k.toFixed(1):k.toFixed(0))+"K"; }
+  return "$"+Math.round(n);
+}
+function salaryText(j){
+  const s=j&&j.salary; if(!s) return "";
+  const lo=money(s.min), hi=money(s.max);
+  if(!lo&&!hi) return "";
+  const per=(s.period==="hour")?"/hr":"/yr";
+  if(lo&&hi&&lo!==hi) return lo+" - "+hi+per;
+  return (lo||hi)+per;
+}
+function salaryHtml(j){
+  const t=salaryText(j);
+  return t ? ('<span>\u00b7</span><span class="sal">'+esc(t)+'</span>') : "";
+}
+
 function statusControl(j){
   const s=j.status||"";
   const opt=(val,lbl)=>`<button class="${s===val?'on':''}" onclick="setStatus('${j.id}','${val}',event)"><span class="stdot d-${val}"></span>${lbl}</button>`;
@@ -911,7 +932,7 @@ function renderDetail(j){
       <div>
         <div class="d-co">${esc(j.company)}</div>
         <h1 class="d-ti">${esc(j.title)}</h1>
-        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span>${pa?`<span>·</span><span class="d-posted">${esc(pa)}</span>`:""}</div>
+        <div class="d-loc"><span>${esc(j.location||"Location N/A")}</span><span>·</span><span style="text-transform:capitalize">${esc(j.source)}</span><span>·</span><span class="vchip ${verified(j)?'ok':'est'}">${verified(j)?'AI verified':'Estimate only'}</span>${salaryText(j)?`<span>·</span><span class="d-sal">${esc(salaryText(j))}</span>`:""}${pa?`<span>·</span><span class="d-posted">${esc(pa)}</span>`:""}</div>
       </div>
       <div class="d-right">
         ${statusControl(j)}

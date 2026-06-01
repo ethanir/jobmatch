@@ -670,6 +670,7 @@ def _shape(job):
         "first_seen": job.get("first_seen", "") or "",
         "status": job.get("status", "") or "",
         "posted_ts": posted_ts,
+        "salary": job.get("salary") or None,
     }
 
 
@@ -1837,7 +1838,8 @@ def _rank_candidates(user_id, profile, limit, desc_chars=RANK_DESC_CHARS):
 def _candidate_brief(profile):
     """One honest line describing the candidate's level + authorization, so the AI
     scores against THIS person (a new grad, a senior, whoever) rather than a fixed
-    'early-career' assumption. Mirrors score.desired_level."""
+    'early-career' assumption. Written in the second person ("you") so the model's
+    reasons address the candidate directly. Mirrors score.desired_level."""
     try:
         import score as _score
         level = _score.desired_level(profile)
@@ -1849,13 +1851,13 @@ def _candidate_brief(profile):
               "entry": "an early-career / new-grad candidate",
               "mid": "a mid-level candidate",
               "senior": "a senior candidate"}.get(level, "a mid-level candidate")
-    bits = [f"This candidate is {phrase}"]
+    bits = [f"You are {phrase}"]
     if yrs not in (None, ""):
         bits.append(f"with about {yrs} years of experience")
     bits.append(f"targeting: {titles}.")
     line = " ".join(bits)
     if profile.get("requires_sponsorship"):
-        line += " They require visa sponsorship, so a role that explicitly does not sponsor is a skip."
+        line += " You require visa sponsorship, so a role that explicitly does not sponsor is a skip."
     return line, level
 
 
@@ -1941,26 +1943,30 @@ def _build_rank_prompt(profile, jobs):
     # The seniority rule is written to match THIS candidate, not a fixed persona.
     if level in ("entry", "intern"):
         seniority_rule = ("A role needing 5+ years, or a senior/staff/lead/principal/"
-                          "manager title, is a skip for this candidate.")
+                          "manager title, is a skip for you.")
     elif level == "senior":
-        seniority_rule = ("A junior, new-grad, or internship role is a poor fit (the "
-                          "candidate is over-qualified); score it low.")
+        seniority_rule = ("A junior, new-grad, or internship role is a poor fit (you are "
+                          "over-qualified); score it low.")
     else:
         seniority_rule = ("A senior/staff/lead/principal title is usually a stretch, "
                           "and an internship is a poor fit; score those low.")
     lines = [
-        "You are an expert technical recruiter. Score how well THIS candidate "
-        "fits EACH job below. Be honest and strict: correctly rejecting a bad "
-        "fit is more useful than inflating a score.",
+        "You are an expert technical recruiter scoring how well you, the person "
+        "described below, fit EACH job. Be honest and strict: correctly rejecting a "
+        "bad fit is more useful than inflating a score.",
         brief,
         seniority_rule,
-        "Judge on: title/role match, how many required skills the candidate has, "
-        "seniority fit, and location vs their preferences. If a posting has little "
+        "Judge on: title/role match, how many required skills you have, "
+        "seniority fit, and location vs your preferences. If a posting has little "
         "or no description, score from the title and say the detail was limited.",
-        "A role in a different discipline than the candidate targets (for example a "
+        "A role in a different discipline than you target (for example a "
         "data science, data analytics, product management, design, or hardware role "
         "for a software engineer, or vice versa) is a poor fit and should score low, "
         "even when some skills overlap.",
+        "",
+        "Write every \"reasons\" string addressed to you in the second person "
+        "(\"you\", \"your\"): say \"Your stack matches\" or \"You lack the required "
+        "license\", never \"he\", \"she\", \"they\", \"the candidate\", or \"his/her\".",
         "",
         "Return ONLY a JSON array, one object per job, in this exact shape, and "
         "nothing else:",

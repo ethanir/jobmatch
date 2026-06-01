@@ -93,6 +93,11 @@ Score 0-100 using this rubric:
 - If the posting has little or no description, score from the title and note that the
   detail was limited rather than guessing.
 
+Write every "reasons" string addressed directly to the candidate in the second person
+("you", "your"): say "Your React and TypeScript match the stack" or "You lack the
+required RN license", never "he", "she", "they", "the candidate", or "his/her". Keep
+each reason short.
+
 Return ONLY JSON in this shape:
 {{
   "score": 0-100,
