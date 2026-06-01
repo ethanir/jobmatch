@@ -567,6 +567,7 @@ def _shape_top(scored_jobs):
             "is_new": j.get("is_new", False),
             "first_seen": j.get("first_seen", "") or "",
             "date_posted": j.get("date_posted"),
+            "salary": j.get("salary"),
             "_score": j.get("_score", 0),
             "_matched": j.get("_matched", []),
             "_why": j.get("_why", []),
@@ -634,7 +635,6 @@ def _compute_scored_base(profile, token, key):
             # evict an arbitrary existing entry to stay bounded
             _BASE_CACHE.pop(next(iter(_BASE_CACHE)), None)
         _BASE_CACHE[key] = {"token": token, "jobs": base}
-    return base
     return base
 
 
