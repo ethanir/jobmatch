@@ -165,7 +165,10 @@
   .modal-x:hover{border-color:var(--acc);color:var(--acc)}
   .overlay.loader{align-items:center}
   .loadcard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:34px 38px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.45)}
-  .spinner{width:42px;height:42px;margin:0 auto 18px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--acc);animation:spin .8s linear infinite}
+  .spinner{width:46px;height:46px;margin:0 auto 18px;border-radius:50%;border:4px solid var(--line2);border-top-color:var(--acc);border-right-color:var(--acc);animation:spin .7s linear infinite}
+  .loadtrack{margin-top:18px;height:5px;width:100%;background:#0c1117;border-radius:99px;overflow:hidden}
+  .loadfill{height:100%;width:40%;border-radius:99px;background:linear-gradient(90deg,transparent,var(--acc),transparent);animation:sweep 1.25s ease-in-out infinite}
+  @keyframes sweep{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   .loadtitle{font-family:var(--fd);font-size:19px;font-weight:600;color:var(--ink);margin-bottom:8px}
   .loadsub{font-size:13.5px;color:var(--ink2);font-weight:600;line-height:1.5}
@@ -345,7 +348,8 @@
   <div class="loadcard">
     <div class="spinner"></div>
     <div class="loadtitle">Reading your resume</div>
-    <div class="loadsub">Pulling out your roles, skills, and experience. This takes a few seconds.</div>
+    <div class="loadsub" id="resumeLoadSub">Pulling out your roles, skills, and experience.</div>
+    <div class="loadtrack"><div class="loadfill"></div></div>
   </div>
 </div>
 
@@ -385,8 +389,21 @@ function togglePanel(){ openByo(); }   // "Use my own AI" card button: open the 
 // Close the pop-out on a backdrop click or Escape.
 document.addEventListener("click",function(e){ if(e.target && e.target.id==="byoOverlay") closeByo(); });
 document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeByo(); });
-function showResumeLoader(){ var o=document.getElementById("resumeLoader"); if(o) o.classList.add("show"); }
-function hideResumeLoader(){ var o=document.getElementById("resumeLoader"); if(o) o.classList.remove("show"); }
+var _resumeMsgTimer=null;
+function showResumeLoader(){
+  var o=document.getElementById("resumeLoader"); if(o) o.classList.add("show");
+  var sub=document.getElementById("resumeLoadSub");
+  var msgs=["Pulling out your roles, skills, and experience.",
+            "Reading your work history.",
+            "Finding your strongest skills.",
+            "Matching you to the right titles.",
+            "Almost there, finishing up."];
+  var i=0;
+  if(sub){ sub.textContent=msgs[0]; }
+  clearInterval(_resumeMsgTimer);
+  _resumeMsgTimer=setInterval(function(){ i=(i+1)%msgs.length; if(sub) sub.textContent=msgs[i]; }, 2200);
+}
+function hideResumeLoader(){ var o=document.getElementById("resumeLoader"); if(o) o.classList.remove("show"); clearInterval(_resumeMsgTimer); }
 function copyPrompt(){navigator.clipboard?.writeText(PROMPT);const b=document.getElementById("copyBtn");b.textContent="Copied";b.classList.add("done");setTimeout(()=>{b.textContent="Copy";b.classList.remove("done")},1500);}
 
 function reviewProfile(p, note){

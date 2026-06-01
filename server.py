@@ -2257,7 +2257,27 @@ async def rank_import(request: Request):
     return {"ok": True, "saved": saved, "skipped": skipped}
 
 
-@app.post("/api/rank/auto")
+@app.get("/api/rank/usage")
+def rank_usage(request: Request):
+    """How much automatic ranking this user has left this month, as a fraction
+    (0..1) plus a coarse state, so the UI can show a bar without a raw number.
+    Free/no-DB returns full. This never spends and is safe to poll."""
+    if not db.has_db():
+        return {"ok": True, "remaining": 1.0, "state": "full", "is_pro": False}
+    user_id = request.state.user_id
+    is_pro = bool(_is_unlocked(request))
+    month = time.strftime("%Y-%m", time.gmtime())
+    used_cents = 0
+    try:
+        with db.get_conn() as conn:
+            if conn:
+                used_cents = (db.get_usage(conn, user_id, month) or {}).get("paid_cents") or 0
+    except Exception:
+        used_cents = 0
+    cap = max(1, AUTO_RANK_MONTHLY_CENTS)
+    remaining = max(0.0, min(1.0, (cap - used_cents) / cap))
+    state = "empty" if remaining <= 0 else ("low" if remaining <= 0.25 else "ok")
+    return {"ok": True, "remaining": remaining, "state": state, "is_pro": is_pro}
 async def rank_auto(request: Request):
     """One-click ranking: WE call the model for the user, so they skip the
     copy-into-your-own-AI step. Same candidates, same prompt, same validation,

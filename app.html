@@ -210,6 +210,8 @@
   .fl-title{font-family:var(--fd);font-size:21px;font-weight:600;color:var(--ink);letter-spacing:.01em}
   .fl-sub{font-family:var(--fu);font-size:13.5px;font-weight:600;color:var(--mut);max-width:340px;line-height:1.5}
   .feedmore{display:none;align-items:center;gap:9px;margin:0 0 14px;padding:9px 13px;border:1px solid var(--line2);border-radius:10px;background:rgba(79,227,155,.05);font-family:var(--fu);font-size:12.5px;font-weight:600;color:var(--mut)}
+  .rankingbar{display:none;align-items:center;gap:9px;margin:0 0 14px;padding:10px 14px;border:1px solid var(--greenln);border-radius:10px;background:rgba(79,227,155,.08);font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2)}
+  .rankingbar.on{display:flex}
   .feedmore.on{display:flex}
   .fm-dot{width:13px;height:13px;flex:none;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--green);animation:spin .8s linear infinite}
   @media(prefers-reduced-motion:reduce){.fl-spinner{animation-duration:1.6s}}
@@ -263,6 +265,12 @@
   .autorank{margin:4px 0 2px}
   .autorank #autoRankBtn{margin-top:4px}
   .autorank-note{font-family:var(--fu);font-size:12px;color:var(--mut);margin-top:8px;line-height:1.45;text-align:center}
+  .usagebar{margin-top:12px}
+  .usagebar-track{height:6px;width:100%;background:#0c1117;border:1px solid var(--line2);border-radius:99px;overflow:hidden}
+  .usagebar-fill{height:100%;border-radius:99px;background:var(--green);transition:width .4s ease,background .3s}
+  .usagebar-fill.low{background:#e3c14f}
+  .usagebar-fill.empty{background:#e3804f}
+  .usagebar-label{font-family:var(--fu);font-size:11.5px;font-weight:600;color:var(--mut);margin-top:6px;text-align:center}
   .autorank-or{display:flex;align-items:center;gap:12px;margin:18px 0 4px;color:var(--mut);font-family:var(--fu);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
   .autorank-or:before,.autorank-or:after{content:"";flex:1;height:1px;background:var(--line2)}
   .modal-x{position:absolute;top:14px;right:18px;font-size:22px;color:var(--mut);background:none;border:none;cursor:pointer;line-height:1}
@@ -402,6 +410,7 @@
 <main>
   <section>
     <div class="feedmore" id="feedMore"><span class="fm-dot"></span>Finding more matches across every field&hellip;</div>
+    <div class="rankingbar" id="rankingBar"><span class="fm-dot"></span><span id="rankingBarTx">Ranking your matches with AI&hellip;</span></div>
     <div id="rankBannerWrap"></div>
     <div class="toolbar">
       <div class="filters" id="filters"></div>
@@ -434,6 +443,10 @@
     <p>These scores are quick keyword estimates. Have your top matches read in full so the feed shows real fit, not keywords.</p>
     <div class="autorank" id="autoRankWrap">
       <button class="modal-btn" id="autoRankBtn" onclick="autoRank()">Rank them for me &middot; one click &rarr;</button>
+      <div class="usagebar" id="usageBar" style="display:none">
+        <div class="usagebar-track"><div class="usagebar-fill" id="usageFill"></div></div>
+        <div class="usagebar-label" id="usageLabel">Monthly auto-ranking</div>
+      </div>
       <div class="autorank-note">We read your top matches for you. No copy-paste. Or do it free with your own AI below.</div>
       <div class="autorank-or"><span>or rank with your own AI, free</span></div>
     </div>
@@ -740,7 +753,33 @@ function openRank(){
   syncRankDepthUI();
   updateRankInfo();
   loadRankPrompt();
+  refreshUsage();
 }
+
+// Show how much automatic ranking is left this month as a bar (no raw number),
+// so the user sees value remaining without us exposing internal cost figures.
+function refreshUsage(){
+  const wrap=document.getElementById("usageBar");
+  const fill=document.getElementById("usageFill");
+  const label=document.getElementById("usageLabel");
+  const btn=document.getElementById("autoRankBtn");
+  if(!wrap||!fill) return;
+  fetch(API+"/api/rank/usage",{credentials:"same-origin"}).then(r=>r.json()).then(d=>{
+    if(!d||!d.ok){ wrap.style.display="none"; return; }
+    wrap.style.display="block";
+    const pct=Math.round((d.remaining||0)*100);
+    fill.style.width=pct+"%";
+    fill.className="usagebar-fill"+(d.state==="empty"?" empty":(d.state==="low"?" low":""));
+    if(d.state==="empty"){
+      label.textContent="Monthly auto-ranking used up - resets next month";
+      if(btn){ btn.disabled=true; }
+    }else{
+      label.textContent= d.state==="low" ? "Monthly auto-ranking running low" : "Monthly auto-ranking";
+      if(btn){ btn.disabled=false; }
+    }
+  }).catch(()=>{ wrap.style.display="none"; });
+}
+window.refreshUsage = refreshUsage;
 function rankUnverified(){ return JOBS.filter(j=>!verified(j)).length; }
 function updateRankInfo(){
   const el=document.getElementById("rankSend"); if(!el) return;
@@ -779,37 +818,50 @@ function copyRankPrompt(){
   setTimeout(()=>{b.textContent="Copy"; b.classList.remove("done");},1500);
 }
 let RANK_SAVING = false;
+function setRankingBar(on, text){
+  const b=document.getElementById("rankingBar");
+  if(!b) return;
+  b.classList.toggle("on", !!on);
+  if(text){ const t=document.getElementById("rankingBarTx"); if(t) t.innerHTML=text; }
+}
+var _rankMsgTimer=null;
 function autoRank(){
   if(RANK_SAVING) return;
-  const btn=document.getElementById("autoRankBtn");
-  const msg=document.getElementById("rankMsg");
-  RANK_SAVING=true; btn.disabled=true; const label=btn.textContent;
-  btn.textContent="Reading your matches\u2026";
-  msg.className="modal-msg"; msg.textContent="";
-  // Ranking calls a model server-side; give it room but never hang forever.
+  RANK_SAVING=true;
+  // Don't trap the user on the modal staring at a static bar. Close it, drop them
+  // back on the feed, and show a live ranking indicator at the top of the list.
+  closeRank();
+  setRankingBar(true, "Ranking your matches with AI&hellip;");
+  const msgs=["Reading your top matches in full&hellip;",
+              "Scoring each role against your profile&hellip;",
+              "Finding your strongest fits&hellip;",
+              "Almost done&hellip;"];
+  let i=0;
+  clearInterval(_rankMsgTimer);
+  _rankMsgTimer=setInterval(()=>{ i=(i+1)%msgs.length; setRankingBar(true, msgs[i]); }, 2500);
   const ctrl=new AbortController();
-  const killer=setTimeout(()=>{ try{ ctrl.abort(); }catch(e){} }, 90000);
+  const killer=setTimeout(()=>{ try{ ctrl.abort(); }catch(e){} }, 120000);
   fetch(API+"/api/rank/auto",{method:"POST",credentials:"same-origin",signal:ctrl.signal})
     .then(r=>r.json()).then(d=>{
-      clearTimeout(killer);
+      clearTimeout(killer); clearInterval(_rankMsgTimer);
+      RANK_SAVING=false; setRankingBar(false);
       if(d.ok){
-        msg.className="modal-msg ok";
-        msg.textContent="Ranked "+d.saved+" match"+(d.saved===1?"":"es")+". Updating your feed\u2026";
         RANK_PROMPT="";
-        const remaining=Math.max(0, rankUnverified() - d.saved);
-        setTimeout(()=>{ RANK_SAVING=false; btn.disabled=false; btn.textContent=label; closeRank(); loadJobs();
-          toast(remaining>0
-            ? ("Ranked "+d.saved+". Click Rank my matches again for more.")
-            : "Your top matches are ranked."); }, 700);
+        loadJobs();
+        if(window.refreshUsage) try{ window.refreshUsage(); }catch(_){ }
+        const remaining=Math.max(0, rankUnverified() - (d.saved||0));
+        toast(remaining>0
+          ? ("Ranked "+d.saved+". Click Rank my matches for more.")
+          : "Your top matches are ranked \u2713", {ms:4000});
+      }else if(d.capped){
+        toast(d.error || "You've used this month's automatic ranking.", {sticky:true});
       }else{
-        RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
-        msg.className="modal-msg"; msg.textContent = d.error || "Couldn't rank automatically. Try your own AI below, free.";
+        toast(d.error || "Couldn't rank automatically. Try your own AI, free.", {sticky:true});
       }
     }).catch(()=>{
-      clearTimeout(killer);
-      RANK_SAVING=false; btn.disabled=false; btn.textContent=label;
-      msg.className="modal-msg";
-      msg.textContent="That took too long or the connection dropped. Try again, or use your own AI below.";
+      clearTimeout(killer); clearInterval(_rankMsgTimer);
+      RANK_SAVING=false; setRankingBar(false);
+      toast("Ranking took too long or the connection dropped. Try again, or use your own AI.", {sticky:true});
     });
 }
 
