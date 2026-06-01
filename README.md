@@ -31,7 +31,7 @@ Jobrolu runs the search the way it actually works: **aggregate** from clean sour
 <p align="center">
   <img src="assets/feed.png" alt="The Jobrolu live feed, ranked for you" width="100%">
   <br>
-  <sub><i>The live feed: the shared pool ranked against your profile, split into Strong, Possible, and Skip, each with an AI-verified fit score and the reasons behind it.</i></sub>
+  <sub><i>The live feed: the shared pool ranked against your profile, split into Strong, Possible, and Skip, each with an AI-verified fit score and the reasons behind it. Cards show salary where the source states it and how recently the role was posted, and the list can be sorted by best match, most recent, or highest pay.</i></sub>
 </p>
 
 ---
@@ -163,7 +163,8 @@ Everyone has an equal account; there is no special owner tier. The model is simp
 - **Your feed is yours.** Once you have a profile, you see the shared job pool ranked for *you* by the free heuristic, plus any roles you have personally verified. New jobs show as estimates until you verify them.
 - **Verifying is free for everyone.** **Rank my matches** turns your top 150 roles into verified fits using your own ChatGPT or Claude, at no cost; it sends each role's full description so the AI judges the complete posting. Those verified rankings are stored against your profile and overlay your feed. Resume upload is open to every signed-in account.
 - **The job pool refreshes itself.** New roles are pulled and heuristic-ranked automatically on a schedule (free, no AI), so the feed stays current on its own; the app shows a live countdown to the next scan. Any action that spends the deployment's API budget stays behind the access code, and a spend cap in the Anthropic console is the hard ceiling.
-- **The shared pool is durable.** Each Refresh writes the resulting pool to Postgres, not just the host's disk, so a redeploy never reverts it. The feed reads the pool from Postgres (falling back to the committed file when the database is empty or off) and caches it in memory, so it is not re-parsed on every request.
+- **The shared pool is durable.** Each Refresh writes the resulting pool to Postgres, not just the host's disk, so a redeploy never reverts it. The feed reads the pool from Postgres (falling back to the committed file when the database is empty or off) and caches it in memory, so it is not re-parsed on every request. The pool is stored split across rows so it can grow without hitting any single-value database limit.
+- **Bulk job upload (owner).** Beyond the live connectors, the owner can upload a JSON batch of jobs (for example a hiring.cafe export) from the **Upload jobs** button. Each uploaded role is converted into the same internal shape and scored by the exact same free pipeline as a polled role, so it ranks identically. The batch is de-duplicated within itself and against the existing pool; a role already present is not added twice, and instead has its salary and posted date filled in or refreshed from the upload. Salary and the posting date ride along on each card where the source states them, never invented. No AI is called on upload, so it never spends; the normal Rank flow verifies the top later.
 
 Configure on the host (Railway) with env vars:
 
@@ -197,6 +198,12 @@ The price label and the tier name are both env-configurable in one place: `PRO_P
   <img src="assets/profile.png" alt="Build your profile, with resume upload gated for free users" width="100%">
   <br>
   <sub><i>On the Build your profile screen, resume upload is locked for free users; the form and the your-own-AI paths stay free.</i></sub>
+</p>
+
+<p align="center">
+  <img src="assets/pro_account_live_feed.png" alt="The Pro live feed: ranked roles with fit scores, reasons, salary, and freshness" width="100%">
+  <br>
+  <sub><i>The Pro live feed: the shared pool ranked for you, with AI-verified fit scores, the reasons behind each, salary where the source states it, and how recently each role was posted.</i></sub>
 </p>
 
 <p align="center">

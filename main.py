@@ -289,10 +289,14 @@ def ingest_uploaded(records, existing_pool, profile_path="profile.example.json",
         if match:
             n_overlap += 1
             touched = False
-            if j.get("salary") and not match.get("salary"):
-                match["salary"] = j["salary"]; touched = True
+            # Salary: fill it in when missing, and refresh it when the uploaded
+            # value differs (a re-upload with updated pay keeps the pool current).
+            js = j.get("salary")
+            if js and js != match.get("salary"):
+                match["salary"] = js; touched = True
+            # Posted date: same rule, fill or update from the upload.
             jp = j.get("date_posted")
-            if isinstance(jp, (int, float)) and jp and not match.get("date_posted"):
+            if isinstance(jp, (int, float)) and jp and jp != match.get("date_posted"):
                 match["date_posted"] = jp; touched = True
             if touched:
                 n_enriched += 1

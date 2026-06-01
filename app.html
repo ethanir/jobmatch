@@ -112,6 +112,8 @@
   .toolbar{display:flex;flex-direction:column;gap:11px;margin-bottom:16px}
   .toolbar .filters{margin-bottom:0}
   .searchbox{position:relative;width:100%}
+  .sortsel{appearance:none;-webkit-appearance:none;width:100%;font-family:var(--fu);font-size:13px;font-weight:600;color:var(--ink2);background:var(--card) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237e8a96' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>") no-repeat right 12px center;border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 13px;cursor:pointer}
+  .sortsel:hover{border-color:var(--green)}
   .searchbox svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none}
   .searchbox input{width:100%;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:9px 32px 9px 34px;color:var(--ink);font-family:var(--fu);font-size:13.5px;outline:none;transition:border-color .15s}
   .searchbox input:focus{border-color:var(--greenln)}
@@ -386,6 +388,11 @@
         <input id="searchIn" type="text" placeholder="Search company or title" oninput="setSearch(this.value)" autocomplete="off"/>
         <button class="searchclear" id="searchClear" onclick="clearSearch()" aria-label="clear search">×</button>
       </div>
+      <select id="sortSel" class="sortsel" onchange="setSort(this.value)" title="Sort the list">
+        <option value="best">Best match</option>
+        <option value="recent">Most recent</option>
+        <option value="pay">Highest pay</option>
+      </select>
     </div>
     <div class="list" id="list"></div>
   </section>
@@ -449,7 +456,7 @@
 
 <script>
 const API = location.origin.startsWith("file") ? "http://localhost:8000" : "";
-let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "", PAGE = 1;
+let JOBS = [], FILTER = "strong", SELECTED = null, SOURCE = "", RANK_PROMPT = "", SEARCH = "", PAGE = 1, SORT = "best";
 const PAGE_SIZE = 60;
 // Two-phase first feed: phase 1 returns the field-relevant matches fast with
 // computing=true, then we poll until the full pool lands (computing=false).
@@ -800,6 +807,7 @@ function render(){
     `<button class="pill ${FILTER===k?'active':''}" onclick="setFilter('${k}')">${label}<b>${c[k]||0}</b></button>`).join("");
   const searched = searchedJobs();
   let rows = searched.filter(j=> FILTER==="all" ? true : FILTER==="recent" ? isRecent(j) : j.tier===FILTER);
+  rows = sortRows(rows);
   const list = document.getElementById("list");
   if(!rows.length){
     list.innerHTML = '<div class="empty">'+emptyMessage(searched)+'</div>';
@@ -1007,6 +1015,22 @@ function select(id){
 // up to the job list. On desktop the button is hidden, so this is never reached.
 function backToList(){ window.scrollTo({top:0,behavior:"smooth"}); }
 function setFilter(f){FILTER=f;SELECTED=null;PAGE=1;render();}
+function setSort(s){ SORT=s; SELECTED=null; PAGE=1; render(); }
+
+/* Sort comparator for the list. "best" keeps the server order (tier then score).
+   "recent" is newest first by posted date then first-seen. "pay" is highest
+   salary first, jobs without a salary sink to the bottom. */
+function _payOf(j){ const s=j&&j.salary; if(!s) return -1; return (s.max||s.min||0)*(s.period==="hour"?2000:1); }
+function _whenOf(j){
+  if(typeof j.posted_ts==="number" && j.posted_ts) return j.posted_ts*1000;
+  if(j.first_seen){ const t=Date.parse(j.first_seen+"T00:00:00Z"); if(!isNaN(t)) return t; }
+  return 0;
+}
+function sortRows(rows){
+  if(SORT==="recent") return rows.slice().sort((a,b)=>_whenOf(b)-_whenOf(a));
+  if(SORT==="pay") return rows.slice().sort((a,b)=>_payOf(b)-_payOf(a));
+  return rows; // "best" = existing tier/score order from the server
+}
 function showMore(){PAGE++;render();}
 function esc(s){return (s==null?"":""+s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
