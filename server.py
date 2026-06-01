@@ -2278,6 +2278,9 @@ def rank_usage(request: Request):
     remaining = max(0.0, min(1.0, (cap - used_cents) / cap))
     state = "empty" if remaining <= 0 else ("low" if remaining <= 0.25 else "ok")
     return {"ok": True, "remaining": remaining, "state": state, "is_pro": is_pro}
+
+
+@app.post("/api/rank/auto")
 async def rank_auto(request: Request):
     """One-click ranking: WE call the model for the user, so they skip the
     copy-into-your-own-AI step. Same candidates, same prompt, same validation,
@@ -2327,6 +2330,7 @@ async def rank_auto(request: Request):
     CHUNK = 12
     saved = 0
     any_call_ok = False
+    first_error = ""                 # the first real failure, surfaced for diagnosis
     by_id = {j["id"]: j for j in cands}
     for start in range(0, len(cands), CHUNK):
         batch = cands[start:start + CHUNK]
@@ -2339,10 +2343,14 @@ async def rank_auto(request: Request):
             )
             text = "".join(getattr(b, "text", "") for b in msg.content
                             if getattr(b, "type", "") == "text")
-        except Exception:
+        except Exception as e:
+            if not first_error:
+                first_error = "api: %s: %s" % (type(e).__name__, str(e)[:200])
             continue                              # skip this chunk, keep going
         rankings = _extract_json_array(text)
         if not isinstance(rankings, list) or not rankings:
+            if not first_error:
+                first_error = "parse: empty after %d chars" % len(text or "")
             continue
         any_call_ok = True
         try:
@@ -2362,11 +2370,18 @@ async def rank_auto(request: Request):
                         "source": "ai",
                     }, fit, ranked_by="ai_paid")
                     saved += 1
-        except Exception:
+        except Exception as e:
+            if not first_error:
+                first_error = "save: %s: %s" % (type(e).__name__, str(e)[:200])
             continue
 
     if not any_call_ok:
-        return {"ok": False, "error": "The ranking service is busy right now. Try again in a moment, or rank with your own AI for free."}
+        # Surface the real reason (truncated, safe) so we can see what is failing,
+        # rather than a vague message that hides it.
+        detail = (" (" + first_error + ")") if first_error else ""
+        return {"ok": False,
+                "error": "Couldn't reach the ranking service." + detail
+                         + " You can rank with your own AI for free."}
 
     # Charge the cap once per successful run (not per chunk), after we know it worked.
     try:
