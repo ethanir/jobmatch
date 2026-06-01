@@ -810,6 +810,10 @@ _SYSTEM_LABELS = {
     "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee",
     "workable": "Workable", "adzuna": "Adzuna", "usajobs": "USAJOBS",
     "workday": "Workday", "icims": "iCIMS",
+    "successfactors": "SuccessFactors", "adp": "ADP", "paylocity": "Paylocity",
+    "ultipro": "UKG Pro", "oraclecloud": "Oracle Cloud", "jazzhr": "JazzHR",
+    "paycor": "Paycor", "dayforce": "Dayforce", "jobvite": "Jobvite",
+    "bamboohr": "BambooHR", "breezy": "Breezy", "upload": "Uploaded",
 }
 
 
@@ -1121,6 +1125,83 @@ def refresh_status():
     """Live progress of the running (or last) refresh, for the UI progress bar."""
     with _refresh_lock:
         return dict(_refresh)
+
+
+def _run_upload(records, profile_path):
+    """Worker: score an uploaded batch like a polled source and merge it into the
+    pool, reusing the refresh progress state so the UI's existing progress bar
+    shows it. Persists the merged pool to file AND Postgres, then busts caches."""
+    def progress(stage, pct, detail):
+        with _refresh_lock:
+            _refresh.update(stage=stage, pct=pct, detail=detail)
+    try:
+        with _refresh_lock:
+            _refresh.update(running=True, stage="Starting", pct=0, detail="upload",
+                            started_at=time.time(), finished_at=None,
+                            result=None, error=None)
+        existing = _pool_list() or []
+        # _pool_list result is treated as read-only elsewhere; copy before merge.
+        merged, summary = pipeline.ingest_uploaded(
+            records, list(existing), profile_path=profile_path, progress=progress)
+        # Write the merged pool to the same file refresh writes, then persist to DB.
+        try:
+            with open(RANKED_FILE, "w") as f:
+                json.dump(merged, f)
+        except Exception:
+            pass
+        if db.has_db():
+            try:
+                with db.get_conn() as conn:
+                    if conn:
+                        db.save_pool(conn, merged)
+            except Exception:
+                pass
+        with _POOL_LOCK:
+            _POOL_CACHE.update(src=None, token=None, data=None)
+        with _refresh_lock:
+            _refresh.update(running=False, stage="Done", pct=100,
+                            finished_at=time.time(), result=summary)
+    except Exception as e:
+        with _refresh_lock:
+            _refresh.update(running=False, stage="Error", error=str(e),
+                            finished_at=time.time())
+
+
+@app.post("/api/jobs/upload")
+async def upload_jobs(request: Request, file: UploadFile = File(...)):
+    """Owner-only: upload a JSON batch of jobs (a hiring.cafe export) and merge it
+    into the shared pool. The batch is scored by the SAME free pipeline as every
+    live source and de-duped against the pool, so uploaded roles rank identically
+    and existing roles (and their AI rankings) are never disturbed. No LLM is
+    called here, so an upload never spends. Returns immediately; poll
+    /api/refresh/status for progress (it reuses the refresh progress bar)."""
+    _require_unlock(request)
+    with _refresh_lock:
+        if _refresh["running"]:
+            return {"started": False, "reason": "a refresh or upload is already running"}
+    try:
+        raw = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="could not read uploaded file")
+    if not raw:
+        raise HTTPException(status_code=400, detail="the uploaded file is empty")
+    try:
+        records = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="file is not valid JSON")
+    # Accept either a bare list, or an object wrapping the list under a common key.
+    if isinstance(records, dict):
+        for k in ("jobs", "results", "data", "items", "ssrHits"):
+            if isinstance(records.get(k), list):
+                records = records[k]
+                break
+    if not isinstance(records, list):
+        raise HTTPException(status_code=400,
+                            detail="expected a JSON array of jobs (or an object containing one)")
+    path = _scan_profile_path()
+    t = threading.Thread(target=_run_upload, args=(records, path), daemon=True)
+    t.start()
+    return {"started": True, "received": len(records)}
 
 
 @app.get("/api/cache/stats")

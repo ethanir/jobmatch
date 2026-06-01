@@ -239,6 +239,104 @@ def run(profile_path="profile.example.json", progress=None, top_n=None, draft=Tr
             "new_postings": n_new_postings}
 
 
+def ingest_uploaded(records, existing_pool, profile_path="profile.example.json",
+                    progress=None):
+    """Score an uploaded batch of jobs EXACTLY like a polled source and merge it
+    into the existing pool, without disturbing anything already there.
+
+    records:       raw list parsed from the uploaded JSON (hiring.cafe export).
+    existing_pool: the current pool (list of job dicts) to merge into; never
+                   dropped -- uploaded jobs are added, and a duplicate of an
+                   existing job is discarded so the existing copy (and its AI
+                   ranking) is the one that survives.
+
+    Same path as run(): convert -> prefilter_generic -> score.rank_free -> apply
+    cached LLM rankings -> heuristic_fit for the rest -> merge -> identical sort.
+    FREE only: no LLM is called here, so an upload never spends. The owner's normal
+    refresh/rank flow ranks the top later and caches it forever.
+    Returns (merged_pool, summary)."""
+    def emit(stage, pct, detail=""):
+        if progress:
+            try:
+                progress(stage, pct, detail)
+            except Exception:
+                pass
+
+    emit("Reading upload", 8, f"{len(records) if isinstance(records, list) else 0} rows")
+    profile = load_profile(profile_path)
+
+    # 1) convert + de-dupe within the batch
+    new_jobs, conv = sources.from_hiring_cafe(records)
+    emit("Converting", 24,
+         f"{conv['converted']} jobs, {conv['ads_skipped']} ads + "
+         f"{conv['batch_duplicates']} dupes skipped")
+
+    # 2) same prefilter as the shared pool (keeps tech + professional, drops hourly)
+    new_jobs = prefilter.prefilter_generic(new_jobs)
+    emit("Prefiltering", 40, f"{len(new_jobs)} survived")
+
+    # 3) de-dupe against the EXISTING pool by our standard identity and by url, so an
+    #    uploaded copy of a job we already have is dropped (existing ranking wins).
+    existing_pool = existing_pool or []
+    have_id = {jobcache.job_id(j) for j in existing_pool}
+    have_url = {(j.get("url") or "") for j in existing_pool if j.get("url")}
+    deduped, n_overlap = [], 0
+    for j in new_jobs:
+        if jobcache.job_id(j) in have_id or (j.get("url") and j.get("url") in have_url):
+            n_overlap += 1
+            continue
+        deduped.append(j)
+    new_jobs = deduped
+    emit("De-duplicating", 56, f"{n_overlap} already in pool, {len(new_jobs)} truly new")
+
+    # 4) FREE score, identical to run()
+    new_jobs = score.rank_free(new_jobs, profile)
+    emit("Free scoring", 70, f"{len(new_jobs)} scored")
+
+    # 5) ids, freshness, cached-ranking reuse -- identical bookkeeping to run()
+    cache = jobcache.load()
+    n_brand_new = 0
+    for j in new_jobs:
+        j["_id"] = jobcache.job_id(j)
+        j["is_new"] = j["_id"] not in cache["seen"]
+        j["first_seen"] = cache["seen"].get(j["_id"]) or jobcache.today()
+        if j["is_new"]:
+            n_brand_new += 1
+        cached_fit = cache["ranked"].get(j["_id"])
+        if cached_fit:
+            j["fit"] = cached_fit          # a previously-paid ranking is reused, never re-paid
+        else:
+            j["fit"] = score.heuristic_fit(j)
+        cache["seen"].setdefault(j["_id"], jobcache.today())
+    jobcache.save(cache)
+
+    # 6) merge (existing first so existing copies win any residual collision) and sort
+    #    with the SAME key run() uses, so the merged feed is ordered identically.
+    merged = list(existing_pool) + new_jobs
+    tier_rank = {"strong": 0, "possible": 1, "skip": 2, "unknown": 3}
+    merged.sort(key=lambda j: (
+        not j.get("is_new"),
+        tier_rank.get((j.get("fit") or {}).get("tier", "unknown"), 3),
+        -((j.get("fit") or {}).get("score") or 0),
+    ))
+    emit("Merging", 92, f"{len(merged)} total roles")
+
+    summary = {
+        "received": conv["received"],
+        "ads_skipped": conv["ads_skipped"],
+        "batch_duplicates": conv["batch_duplicates"],
+        "missing_fields": conv["missing_fields"],
+        "dropped_prefilter": conv["converted"] - n_overlap - len(new_jobs),
+        "already_in_pool": n_overlap,
+        "added": len(new_jobs),
+        "brand_new": n_brand_new,
+        "pool_before": len(existing_pool),
+        "pool_after": len(merged),
+    }
+    emit("Done", 100, f"+{summary['added']} added, {summary['pool_after']} total")
+    return merged, summary
+
+
 def main():
     profile_path = sys.argv[1] if len(sys.argv) > 1 else "profile.example.json"
     profile = load_profile(profile_path)

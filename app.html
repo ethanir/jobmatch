@@ -351,6 +351,11 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
         <span id="hdrRefreshTx">Refresh</span>
       </button>
+      <button class="hdr-refresh" id="hdrUpload" onclick="document.getElementById('uploadFile').click()" style="display:none" title="Upload a JSON batch of jobs and merge it into the pool">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
+        <span id="hdrUploadTx">Upload jobs</span>
+      </button>
+      <input type="file" id="uploadFile" accept=".json,application/json" style="display:none" onchange="ownerUpload(this)">
       <span class="meta" id="meta"></span>
       <button class="plan-pill" id="planPill" onclick="openUpgrade()" style="display:none"></button>
       <div class="acct">
@@ -1053,7 +1058,10 @@ let REFRESHING=false, REFRESH_SAW_RUN=false, REFRESH_WAIT=0;
 async function checkUnlocked(){
   try{
     const s = await fetch(API+"/api/unlock/status",{credentials:"same-origin"}).then(r=>r.json());
-    if(s && s.unlocked){ const b=document.getElementById("hdrRefresh"); if(b) b.style.display=""; }
+    if(s && s.unlocked){
+      const b=document.getElementById("hdrRefresh"); if(b) b.style.display="";
+      const u=document.getElementById("hdrUpload"); if(u) u.style.display="";
+    }
   }catch(e){}
 }
 function setRefreshUI(on, label){
@@ -1095,6 +1103,58 @@ async function pollRefresh(){
   // Not flipped to running yet (worker spinning up): wait briefly, then give up.
   if(REFRESH_WAIT++ < 6){ setTimeout(pollRefresh, 1200); return; }
   setRefreshUI(false); REFRESHING=false; try{ await loadJobs(); }catch(_){ }
+}
+
+/* Owner-only job upload. Sends a JSON batch to the server, which scores it with
+   the same free pipeline as every source and merges it into the pool (de-duped,
+   existing rankings untouched). Reuses the refresh progress bar and poll. */
+function setUploadUI(on, label){
+  const b=document.getElementById("hdrUpload"), t=document.getElementById("hdrUploadTx");
+  if(b){ b.disabled=on; b.classList.toggle("spin", on); }
+  if(t) t.textContent = label || (on ? "Uploading" : "Upload jobs");
+}
+async function ownerUpload(input){
+  const f = input && input.files && input.files[0];
+  input.value = "";                       // allow re-selecting the same file later
+  if(!f) return;
+  if(REFRESHING){ toast("A refresh or upload is already running"); return; }
+  REFRESHING=true; REFRESH_SAW_RUN=false; REFRESH_WAIT=0;
+  setUploadUI(true, "Uploading");
+  try{
+    const fd = new FormData(); fd.append("file", f);
+    const r = await fetch(API+"/api/jobs/upload",{method:"POST",credentials:"same-origin",body:fd})
+                .then(r=>r.json());
+    if(r && r.started===false && !/already/i.test(r.reason||"")){
+      toast("Could not start upload"); setUploadUI(false); REFRESHING=false; return;
+    }
+  }catch(e){ toast("Could not upload file"); setUploadUI(false); REFRESHING=false; return; }
+  setTimeout(pollUpload, 800);
+}
+async function pollUpload(){
+  let s;
+  try{ s = await fetch(API+"/api/refresh/status",{credentials:"same-origin"}).then(r=>r.json()); }
+  catch(e){ setUploadUI(false); REFRESHING=false; try{ await loadJobs(); }catch(_){ } return; }
+  if(s.running){
+    REFRESH_SAW_RUN=true;
+    const pct=(typeof s.pct==="number")?Math.round(s.pct):null;
+    setUploadUI(true, pct!=null ? (s.stage||"Working")+" "+pct+"%" : (s.stage||"Working"));
+    setTimeout(pollUpload, 1500); return;
+  }
+  if(s.stage==="Error" || s.error){
+    toast("Upload failed"); setUploadUI(false); REFRESHING=false; return;
+  }
+  if(s.stage==="Done" || REFRESH_SAW_RUN){
+    setUploadUI(false); REFRESHING=false;
+    const r=s.result||{};
+    await fetchSchedule(); await loadJobs();
+    if(typeof r.added==="number"){
+      const dupes=(r.already_in_pool||0)+(r.batch_duplicates||0);
+      toast("Added "+r.added+" jobs"+(dupes?(", "+dupes+" duplicates skipped"):"")+" \u2713");
+    }else{ toast("Jobs updated \u2713"); }
+    return;
+  }
+  if(REFRESH_WAIT++ < 6){ setTimeout(pollUpload, 1200); return; }
+  setUploadUI(false); REFRESHING=false; try{ await loadJobs(); }catch(_){ }
 }
 
 fetchSchedule();

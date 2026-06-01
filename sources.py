@@ -406,3 +406,187 @@ def pull_all(companies, include_repo=True, max_workers=20):
             print(f"  ! usajobs failed: {e}")
 
     return jobs
+
+
+# ===================================================================================
+# Manual JSON upload (hiring.cafe export) -> canonical job dicts
+# -----------------------------------------------------------------------------------
+# The owner can upload a batch of jobs (e.g. a hiring.cafe export) and have them
+# ingested through the SAME prefilter + free scoring as every live source, so an
+# uploaded role is scored byte-for-byte like a polled one. This module only does the
+# shape conversion; merging/dedup/scoring lives in the pipeline and the server.
+# ===================================================================================
+
+# hiring.cafe abbreviates the underlying ATS; normalize to the same source keys our
+# live connectors use so cards and the coverage page read naturally and consistently.
+_HC_SOURCE_MAP = {
+    "grnhse": "greenhouse", "greenhouse": "greenhouse",
+    "lever": "lever",
+    "ashby": "ashby",
+    "smartrecruiters": "smartrecruiters", "smartr": "smartrecruiters",
+    "recruitee": "recruitee",
+    "workable": "workable",
+    "workday": "workday", "wd": "workday",
+    "icims": "icims", "icims2": "icims",
+    "successfactors": "successfactors", "sf": "successfactors",
+    "adp": "adp",
+    "paylocity": "paylocity",
+    "ultipro": "ultipro", "ukg": "ultipro",
+    "oraclecloud": "oraclecloud", "oracle": "oraclecloud",
+    "jazzhr": "jazzhr",
+    "paycor": "paycor",
+    "dayforce": "dayforce",
+    "jobvite": "jobvite",
+    "bamboohr": "bamboohr", "bamboo": "bamboohr",
+    "breezy": "breezy",
+    "ashbyhq": "ashby",
+}
+
+
+def _hc_clean(v):
+    """Treat empty/missing/whitespace as unknown (None). Never invents data."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+def _hc_iso_to_epoch(s):
+    """ISO date/datetime (e.g. 2026-06-01T01:58:35Z) -> epoch seconds, or None.
+    Feeds the same date_posted -> posted_ts freshness label every source uses."""
+    s = _hc_clean(s)
+    if not s:
+        return None
+    try:
+        import datetime
+        t = s.replace("Z", "+00:00")
+        return int(datetime.datetime.fromisoformat(t).timestamp())
+    except Exception:
+        pass
+    try:
+        import datetime
+        d = datetime.datetime.strptime(s[:10], "%Y-%m-%d")
+        return int(d.replace(tzinfo=datetime.timezone.utc).timestamp())
+    except Exception:
+        return None
+
+
+def _hc_build_description(rec):
+    """Compose one readable description from the structured fields, because the
+    free scorer AND the AI ranker both read job['description']. We fold in the
+    requirement summary, what you'd do, the skills, and the key constraints, so an
+    uploaded role carries as much signal to the scorer as a live posting's text.
+    Only includes fields that are actually present; never fabricates."""
+    parts = []
+    rs = _hc_clean(rec.get("requirements_summary"))
+    if rs:
+        parts.append("Requirements: " + rs)
+    ra = _hc_clean(rec.get("role_activities"))
+    if ra:
+        parts.append("Responsibilities: " + ra)
+    sk = _hc_clean(rec.get("skills"))
+    if sk:
+        parts.append("Skills: " + sk.replace(";", ", "))
+    bits = []
+    sen = _hc_clean(rec.get("seniority"))
+    if sen:
+        bits.append("Seniority: " + sen)
+    yoe = rec.get("min_yoe")
+    if yoe not in (None, "", "unknown"):
+        try:
+            bits.append("Minimum experience: %d years" % int(float(yoe)))
+        except Exception:
+            pass
+    deg = _hc_clean(rec.get("bachelors_required"))
+    if deg:
+        df = _hc_clean(rec.get("degree_fields"))
+        bits.append("Degree: %s%s" % (deg, (" (" + df + ")") if df else ""))
+    wt = _hc_clean(rec.get("workplace_type"))
+    if wt:
+        bits.append("Workplace: " + wt)
+    com = _hc_clean(rec.get("commitment"))
+    if com:
+        bits.append("Commitment: " + com)
+    vs = rec.get("visa_sponsorship")
+    if vs not in (None, "", "unknown"):
+        bits.append("Visa sponsorship: " + ("yes" if str(vs).strip().lower() in ("true", "yes", "1") else "no"))
+    sc = _hc_clean(rec.get("security_clearance"))
+    if sc and sc.lower() not in ("none", "no"):
+        bits.append("Security clearance: " + sc)
+    if bits:
+        parts.append(" | ".join(bits))
+    return "\n\n".join(parts)
+
+
+def _hc_salary(rec):
+    """Structured salary from the export as a salary dict, or None. Stored on the
+    job (round-trips in the pool JSON) but NOT rendered today; bounds-checked."""
+    lo, hi = rec.get("salary_min"), rec.get("salary_max")
+    try:
+        lo = float(lo) if lo not in (None, "", "unknown") else None
+        hi = float(hi) if hi not in (None, "", "unknown") else None
+    except Exception:
+        return None
+    if not lo and not hi:
+        return None
+    lo = lo or hi
+    hi = hi or lo
+    if lo <= 0 or hi <= 0 or hi < lo:
+        return None
+    freq = str(rec.get("salary_frequency") or "yearly").lower()
+    period = "hour" if "hour" in freq or freq in ("hourly", "hr") else "year"
+    cur = (_hc_clean(rec.get("salary_currency")) or "USD").upper()
+    return {"min": lo, "max": hi, "currency": cur, "period": period, "estimated": False}
+
+
+def from_hiring_cafe(records):
+    """Convert a hiring.cafe-style export (list of dicts) into canonical job dicts.
+
+    - Skips ad rows (source == 'hiring_cafe_pin').
+    - Skips rows with no title, company, or apply_url (nothing to rank or apply to).
+    - De-dupes WITHIN the batch by our standard company|title|location identity and
+      by apply_url, so a messy file with repeats yields each role once.
+    Returns (jobs, stats) where stats explains what was kept/dropped, for the UI."""
+    if not isinstance(records, list):
+        raise ValueError("uploaded JSON must be a list of job objects")
+    out = []
+    seen_id, seen_url = set(), set()
+    n_total = len(records)
+    n_pin = n_missing = n_dupe = 0
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        src_raw = (str(rec.get("source") or "").strip().lower())
+        if src_raw == "hiring_cafe_pin":
+            n_pin += 1
+            continue
+        title = _hc_clean(rec.get("title"))
+        company = _hc_clean(rec.get("company"))
+        url = _hc_clean(rec.get("apply_url"))
+        if not title or not company or not url:
+            n_missing += 1
+            continue
+        location = _hc_clean(rec.get("location")) or ""
+        ident = "|".join(x.lower().strip() for x in (company, title, location))
+        if ident in seen_id or url in seen_url:
+            n_dupe += 1
+            continue
+        seen_id.add(ident)
+        seen_url.add(url)
+
+        source = _HC_SOURCE_MAP.get(src_raw, src_raw or "upload")
+        token = _hc_clean(rec.get("board_token")) or _hc_clean(rec.get("company_website")) or company
+        job = _norm(
+            source=source, company=company, title=title, location=location,
+            url=url, description=_hc_build_description(rec),
+            date_posted=_hc_iso_to_epoch(rec.get("estimated_post_date")),
+            ats=source, token=token,
+        )
+        sal = _hc_salary(rec)
+        if sal:
+            job["salary"] = sal          # carried in the pool; not shown on cards today
+        job["_uploaded"] = True          # provenance marker, harmless to scoring/UI
+        out.append(job)
+    stats = {"received": n_total, "ads_skipped": n_pin, "missing_fields": n_missing,
+             "batch_duplicates": n_dupe, "converted": len(out)}
+    return out, stats
